@@ -5,10 +5,10 @@ from modelscope.pipelines import pipeline
 from modelscope.utils.constant import Tasks
 from tqdm import tqdm
 
-path_denoise  = 'tools/denoise-model/speech_frcrn_ans_cirm_16k'
-path_denoise  = path_denoise  if os.path.exists(path_denoise)  else "damo/speech_frcrn_ans_cirm_16k"
-ans = pipeline(Tasks.acoustic_noise_suppression,model=path_denoise)
-def execute_denoise(input_folder,output_folder):
+def execute_denoise(input_folder,output_folder, path_denoise):
+    # path_denoise = 'tools/denoise-model/speech_frcrn_ans_cirm_16k'
+    # path_denoise = path_denoise if os.path.exists(path_denoise) else "damo/speech_frcrn_ans_cirm_16k"
+    ans = pipeline(Tasks.acoustic_noise_suppression, model=path_denoise)
     os.makedirs(output_folder,exist_ok=True)
     # print(input_folder)
     # print(list(os.listdir(input_folder).sort()))
@@ -26,8 +26,11 @@ if __name__ == '__main__':
                         help="Output folder to store transcriptions.")
     parser.add_argument("-p", "--precision", type=str, default='float16', choices=['float16','float32'],
                         help="fp16 or fp32")#还没接入
+    parser.add_argument("-m", "--model_fp", type=str, default='tools/denoise-model/speech_frcrn_ans_cirm_16k',
+                        help="降噪模型路径")
     cmd = parser.parse_args()
     execute_denoise(
         input_folder  = cmd.input_folder,
         output_folder = cmd.output_folder,
+        path_denoise  = cmd.model_fp
     )
