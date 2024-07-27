@@ -11,9 +11,10 @@ def slice(inp,opt_root,threshold,min_length,min_interval,hop_size,max_sil_kept,_
     if os.path.isfile(inp):
         input=[inp]
     elif os.path.isdir(inp):
-        input=[os.path.join(inp, name) for name in sorted(list(os.listdir(inp)))]
+        input=[os.path.join(inp, name) for name in sorted(list(os.listdir(inp))) if name.endswith(".wav")]
     else:
         return "输入路径存在但既不是文件也不是文件夹"
+    print(">>> All input as follow:\n%s" % '\n'.join(input))
     slicer = Slicer(
         sr=32000,  # 长音频采样率
         threshold=      int(threshold),  # 音量小于这个值视作静音的备选切割点
