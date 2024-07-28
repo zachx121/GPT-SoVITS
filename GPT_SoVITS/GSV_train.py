@@ -3,11 +3,12 @@ import os
 import sys
 import json
 import yaml
-# from webui import
 from subprocess import Popen,getstatusoutput
 logging.basicConfig(format='[%(asctime)s-%(levelname)s-%(funcName)s]: %(message)s',
                     datefmt="%Y-%m-%d %H:%M:%S",
                     level=logging.INFO)
+assert getstatusoutput("ls tools")[0] == 0, "必须在项目根目录下执行不然会有路径问题 e.g. python GPT_SoVITS/GSV_train.py"
+
 
 INPUT_DIR = os.path.expanduser("~/AudioProject/voice_sample/XiaoLinShuo")
 EXP_NAME = "XiaoLinShuo"
@@ -17,7 +18,6 @@ SLICE_DIR = os.path.join(INPUT_DIR, 'sliced')
 DENOISED_DIR = os.path.join(INPUT_DIR, 'denoised')
 ASR_DIR = os.path.join(INPUT_DIR, 'asr')
 ASR_FP = os.path.join(ASR_DIR, os.path.basename(DENOISED_DIR))+".list"
-assert getstatusoutput("ls tools")[0] == 0, "必须在项目根目录下执行不然会有路径问题 e.g. python GPT_SoVITS/GSV_train.py"
 EXP_ROOT_DIR = "logs"  # 模型训练相关的特征数据路径
 TMP_DIR = os.path.join(EXP_ROOT_DIR, "TEMP_CONFIG"); os.makedirs(TMP_DIR, exist_ok=True)
 SoVITS_weight_root = "SoVITS_weights"  # 模型路径
@@ -317,6 +317,17 @@ if __name__ == '__main__':
     # step_denoise()
     # step_asr("zh")
     # step_apply_pretrains()
-    step_train_sovits()
-    step_train_gpt()
+    # step_train_sovits()
+    # step_train_gpt()
+
+    # Show models path
+    models_fp = []
+    for i in os.listdir(SoVITS_weight_root):
+        if EXP_NAME in i:
+            models_fp.append(os.path.abspath(os.path.join(SoVITS_weight_root, i)))
+    for i in os.listdir(GPT_weight_root):
+        if EXP_NAME in i:
+            models_fp.append(os.path.abspath(os.path.join(GPT_weight_root, i)))
+    logging.info(">>> Models path:\n%s" % "\n".join(models_fp))
+
 

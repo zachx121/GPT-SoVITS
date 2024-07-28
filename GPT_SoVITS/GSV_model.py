@@ -13,6 +13,7 @@ import soundfile as sf
 import librosa
 import torch
 import LangSegment
+from subprocess import getstatusoutput
 from GSV_utils import cut5, process_text, merge_short_text_in_array, get_first, replace_consecutive_punctuation, clean_text_inf
 from AR.models.t2s_lightning_module import Text2SemanticLightningModule
 from module.models import SynthesizerTrn
@@ -20,15 +21,17 @@ from feature_extractor import cnhubert
 from transformers import AutoModelForMaskedLM, AutoTokenizer
 from tools.my_utils import load_audio
 from module.mel_processing import spectrogram_torch
+assert getstatusoutput("ls tools")[0] == 0, "必须在项目根目录下执行不然会有路径问题 e.g. python GPT_SoVITS/GSV_model.py"
+
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-GPT_MODEL_FP = "./pretrained_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt"
-SOVITS_MODEL_FP = "./pretrained_models/s2G488k.pth"
-CNHUBERT_MODEL_FP = "./pretrained_models/chinese-hubert-base"
-BERT_MODEL_FP = "./pretrained_models/chinese-roberta-wwm-ext-large"
-LANG_MAP = {"JP": "all_ja", "ZH": "all_zh", "EN": "en", "ZH_EN":"zh", "JP_EN":"ja", "AUTO":"auto"}
+DEFAULT_GPT_MODEL_FP = "GPT_SoVITS/pretrained_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt"
+DEFAULT_SOVITS_MODEL_FP = "GPT_SoVITS/pretrained_models/s2G488k.pth"
+CNHUBERT_MODEL_FP = "GPT_SoVITS/pretrained_models/chinese-hubert-base"
+BERT_MODEL_FP = "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large"
+LANG_MAP = {"JP": "all_ja", "ZH": "all_zh", "EN": "en", "ZH_EN": "zh", "JP_EN": "ja", "AUTO": "auto"}
 SPLITS = {"，", "。", "？", "！", ",", ".", "?", "!", "~", ":", "：", "—", "…", }
-TMP_DIR = "./tmp_output"
+TMP_DIR = "./#tmp_output"
 os.makedirs(TMP_DIR, exist_ok=True)
 
 
@@ -71,9 +74,9 @@ class GSVModel:
     """
     @half: 半精度
     """
-    def __init__(self, gpt_model_fp=None, sovits_model_fp=None, is_half=False):
-        self.gpt_model_fp = GPT_MODEL_FP if gpt_model_fp is None else gpt_model_fp
-        self.sovits_model_fp = SOVITS_MODEL_FP if sovits_model_fp is None else sovits_model_fp
+    def __init__(self, sovits_model_fp=None, gpt_model_fp=None, is_half=False):
+        self.sovits_model_fp = DEFAULT_SOVITS_MODEL_FP if sovits_model_fp is None else sovits_model_fp
+        self.gpt_model_fp = DEFAULT_GPT_MODEL_FP if gpt_model_fp is None else gpt_model_fp
         self.is_half = is_half
         logging.info(f">>> Will init GSVModel with:")
         logging.info(f"    [gpt_model_fp]: '{self.gpt_model_fp}'")
@@ -384,31 +387,51 @@ class GSVModel:
 
 
 if __name__ == '__main__':
-    M = GSVModel(gpt_model_fp="/Users/bytedance/AudioProject/GPT-SoVITS/GPT_weights/XuRan-e15.ckpt",
-                 sovits_model_fp="/Users/bytedance/AudioProject/GPT-SoVITS/SoVITS_weights/XuRan_e8_s96.pth")
-    ref_xr07 = ReferenceInfo(audio_fp="/Users/bytedance/AudioProject/voice_sample/Xu_Ran/vocals_as_reference.wav",
-                             text="我想问一下，就是咱们那个疫情防控政策",
-                             lang="ZH")
+    # sovits_model = "/Users/bytedance/AudioProject/GPT-SoVITS/SoVITS_weights/XiaoLinShuo_e4_s60.pth"
+    # gpt_model = "/Users/bytedance/AudioProject/GPT-SoVITS/GPT_weights/XiaoLinShuo-e15.ckpt"
+    # ref_audio = ReferenceInfo(audio_fp="/Users/bytedance/AudioProject/voice_sample/Xu_Ran/vocals_as_reference.wav",
+    #                           text="我想问一下，就是咱们那个疫情防控政策",
+    #                           lang="ZH")
+
+    sovits_model = "/Users/bytedance/AudioProject/GPT-SoVITS/SoVITS_weights/XiaoLinShuo_e4_s60.pth"
+    gpt_model = "/Users/bytedance/AudioProject/GPT-SoVITS/GPT_weights/XiaoLinShuo-e15.ckpt"
+    ref_audio = ReferenceInfo(audio_fp="/Users/bytedance/AudioProject/voice_sample/XiaoLinShuo/denoised/2_vocals.wav_0005554240_0005717760.wav",
+                              text="所以说啊这二十年真的是在斯大林的带领下，把前苏联的经济带上了一个新高度。",
+                              lang="ZH")
+    ref_audio = ReferenceInfo(audio_fp="/Users/bytedance/AudioProject/voice_sample/XiaoLinShuo/denoised/2_vocals.wav_0004883520_0005045120.wav",
+                              text="于是一九二八年之后，斯大林的前三个五年计划哈，那可谓是效果拔群。",
+                              lang="ZH")
+
+    M = GSVModel(sovits_model_fp=sovits_model, gpt_model_fp=gpt_model)
 
     sr, audio = M.predict(target_text="您好，我是您的个人助理！您可以问我今天天气如何。",
                           target_lang="ZH",
-                          ref_info=ref_xr07,
+                          ref_info=ref_audio,
                           top_k=1, top_p=0, temperature=0,
                           ref_free=False, no_cut=True)
-    sf.write(os.path.join(TMP_DIR, f"output_ref_nocut2.wav"), audio, sr)
+    sf.write(os.path.join(TMP_DIR, f"output_{time.time():.0f}.wav"), audio, sr)
 
     sr, audio = M.predict(target_text="我想问一下，关于极端天气防控的问题。",
                           target_lang="ZH",
-                          ref_info=ref_xr07,
+                          ref_info=ref_audio,
                           top_k=1, top_p=0, temperature=0,
                           ref_free=False, no_cut=True)
     sf.write(os.path.join(TMP_DIR, f"output_{time.time():.0f}.wav"), audio, sr)
 
     sr, audio = M.predict(target_text="Hello sir, I'm your personal assistant. you can ask me about the whether.",
                           target_lang="EN",
-                          ref_info=ref_xr07,
+                          ref_info=ref_audio,
                           top_k=1, top_p=0, temperature=0,
                           ref_free=False, no_cut=True)
-    sf.write(os.path.join(TMP_DIR, f"output_ref_nocut2_en.wav"), audio, sr)
+    sf.write(os.path.join(TMP_DIR, f"output_ref_{time.time():.0f}_en.wav"), audio, sr)
 
-
+    long_text = ("The sun rises, painting the sky with hues of gold and pink. The birds chirp merrily, "
+                 "greeting the new day. A gentle breeze blows, carrying the fragrance of fresh flowers. "
+                 "It's a beautiful start to another wonderful day.")
+    for text in long_text.split("\\."):
+        sr, audio = M.predict(target_text=text,
+                              target_lang="EN",
+                              ref_info=ref_audio,
+                              top_k=1, top_p=0, temperature=0,
+                              ref_free=False, no_cut=True)
+        sf.write(os.path.join(TMP_DIR, f"output_ref_{time.time():.0f}_en.wav"), audio, sr)
