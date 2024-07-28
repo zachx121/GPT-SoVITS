@@ -1,19 +1,27 @@
-
+import logging
 import os
 import sys
-from webui import open1abc
+import json
+import yaml
+# from webui import
 from subprocess import Popen,getstatusoutput
-# PROJ_DIR = "~/AudioProject/GPT-SoVITS"
-INPUT_DIR = "~/AudioProject/voice_sample/XiaoLinShuo"
-EXP_NAME = "XiaoLine"
+logging.basicConfig(format='[%(asctime)s-%(levelname)s-%(funcName)s]: %(message)s',
+                    datefmt="%Y-%m-%d %H:%M:%S",
+                    level=logging.INFO)
+
+INPUT_DIR = os.path.expanduser("~/AudioProject/voice_sample/XiaoLinShuo")
+EXP_NAME = "XiaoLinShuo"
+
+IS_HALF = False
 SLICE_DIR = os.path.join(INPUT_DIR, 'sliced')
 DENOISED_DIR = os.path.join(INPUT_DIR, 'denoised')
 ASR_DIR = os.path.join(INPUT_DIR, 'asr')
 ASR_FP = os.path.join(ASR_DIR, os.path.basename(DENOISED_DIR))+".list"
-
-status, output = getstatusoutput("ls tools")
-assert status == 0, "必须在项目根目录下执行不然会有路径问题 e.g. python GPT_SoVITS/GSV_train.py"
-
+assert getstatusoutput("ls tools")[0] == 0, "必须在项目根目录下执行不然会有路径问题 e.g. python GPT_SoVITS/GSV_train.py"
+EXP_ROOT_DIR = "logs"  # 模型训练相关的特征数据路径
+TMP_DIR = os.path.join(EXP_ROOT_DIR, "TEMP_CONFIG"); os.makedirs(TMP_DIR, exist_ok=True)
+SoVITS_weight_root = "SoVITS_weights"  # 模型路径
+GPT_weight_root = "GPT_weights"  # 模型路径
 
 # 人声分离
 # cmd = "demucs --two-stems=vocals xx"
@@ -78,38 +86,237 @@ def step_asr(lang="zh"):
         p_asr.wait()
         p_asr = None
 
-# todo 用open1abc替换这三个
-def step_speech_to_text():
-    # webui.py open1a
-    # python GPT_SoVITS/prepare_datasets/1-get-text.py
-    cmd = f"""
-    
-    """
-    pass
 
-def step_ssl_extract():
-    # open1b
-    # python GPT_SoVITS/prepare_datasets/2-get-hubert-wav32k.py
-    pass
+# 不能直接用webui.py里的open1abc，因为那个函数返回里用了yield
+def step_apply_pretrains():
+    logging.info(f">>> Apply Pretrains on '{ASR_FP}'... ")
+    inp_text = ASR_FP
+    exp_name = EXP_NAME
+    opt_dir = "%s/%s" % (EXP_ROOT_DIR, exp_name)
+    inp_wav_dir = ""  # 直接使用denoised.list里的绝对路径
+    gpu_numbers1a = "0-0"
+    gpu_numbers1Ba = "0-0"
+    gpu_numbers1c = "0-0"
+    bert_pretrained_dir = "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large"
+    ssl_pretrained_dir = "GPT_SoVITS/pretrained_models/chinese-hubert-base"
+    pretrained_s2G_path = "GPT_SoVITS/pretrained_models/s2G488k.pth"
 
+    ps1abc = []
+    ###########################
+    # 1a
+    ###########################
+    path_text = "%s/2-name2text.txt" % opt_dir
+    if (os.path.exists(path_text) == False or (os.path.exists(path_text) == True and len(
+            open(path_text, "r", encoding="utf8").read().strip("\n").split("\n")) < 2)):
+        logging.info(f"writing to {path_text}")
+        config = {
+            "inp_text": inp_text,
+            "inp_wav_dir": inp_wav_dir,
+            "exp_name": exp_name,
+            "opt_dir": opt_dir,
+            "bert_pretrained_dir": bert_pretrained_dir,
+            "is_half": str(IS_HALF)
+        }
+        gpu_names = gpu_numbers1a.split("-")
+        all_parts = len(gpu_names)
+        for i_part in range(all_parts):
+            config.update(
+                {
+                    "i_part": str(i_part),
+                    "all_parts": str(all_parts),
+                    "_CUDA_VISIBLE_DEVICES": gpu_names[i_part],
+                }
+            )
+            os.environ.update(config)
+            cmd = 'python GPT_SoVITS/prepare_datasets/1-get-text.py'
+            print(cmd)
+            p = Popen(cmd, shell=True)
+            ps1abc.append(p)
 
-def step_semantic():
-    # open1c
-    # python GPT_SoVITS/prepare_datasets/3-get-semantic.py
-    pass
+        for p in ps1abc: p.wait()
+
+        opt = []
+        for i_part in range(all_parts):  # txt_path="%s/2-name2text-%s.txt"%(opt_dir,i_part)
+            txt_path = "%s/2-name2text-%s.txt" % (opt_dir, i_part)
+            with open(txt_path, "r", encoding="utf8") as f:
+                opt += f.read().strip("\n").split("\n")
+            os.remove(txt_path)
+        with open(path_text, "w", encoding="utf8") as f:
+            f.write("\n".join(opt) + "\n")
+        assert len("".join(opt)) > 0, "1Aa-文本获取进程失败"
+        logging.info(f"    1a-done. result in '{path_text}'")
+    else:
+        logging.info("    1a skipped.")
+
+    ps1abc = []
+    ###########################
+    # 1b
+    ###########################
+    config = {
+        "inp_text": inp_text,
+        "inp_wav_dir": inp_wav_dir,
+        "exp_name": exp_name,
+        "opt_dir": opt_dir,
+        "cnhubert_base_dir": ssl_pretrained_dir,
+    }
+    gpu_names = gpu_numbers1Ba.split("-")
+    all_parts = len(gpu_names)
+    for i_part in range(all_parts):
+        config.update(
+            {
+                "i_part": str(i_part),
+                "all_parts": str(all_parts),
+                "_CUDA_VISIBLE_DEVICES": gpu_names[i_part],
+            }
+        )
+        os.environ.update(config)
+        cmd = 'python GPT_SoVITS/prepare_datasets/2-get-hubert-wav32k.py'
+        print(cmd)
+        p = Popen(cmd, shell=True)
+        ps1abc.append(p)
+    logging.info("    1a-done. 1b-ING")
+    for p in ps1abc: p.wait()
+    ps1abc = []
+    logging.info("    1a1b-done.")
+    ###########################
+    # 1c
+    ###########################
+    path_semantic = "%s/6-name2semantic.tsv" % opt_dir
+    if (os.path.exists(path_semantic) == False or (
+            os.path.exists(path_semantic) == True and os.path.getsize(path_semantic) < 31)):
+        config = {
+            "inp_text": inp_text,
+            "exp_name": exp_name,
+            "opt_dir": opt_dir,
+            "pretrained_s2G": pretrained_s2G_path,
+            "s2config_path": "GPT_SoVITS/configs/s2.json",
+        }
+        gpu_names = gpu_numbers1c.split("-")
+        all_parts = len(gpu_names)
+        for i_part in range(all_parts):
+            config.update(
+                {
+                    "i_part": str(i_part),
+                    "all_parts": str(all_parts),
+                    "_CUDA_VISIBLE_DEVICES": gpu_names[i_part],
+                }
+            )
+            os.environ.update(config)
+            cmd = 'python GPT_SoVITS/prepare_datasets/3-get-semantic.py'
+            print(cmd)
+            p = Popen(cmd, shell=True)
+            ps1abc.append(p)
+        logging.info("    1a1b-done. 1c-ING")
+        for p in ps1abc: p.wait()
+
+        opt = ["item_name\tsemantic_audio"]
+        for i_part in range(all_parts):
+            semantic_path = "%s/6-name2semantic-%s.tsv" % (opt_dir, i_part)
+            with open(semantic_path, "r", encoding="utf8") as f:
+                opt += f.read().strip("\n").split("\n")
+            os.remove(semantic_path)
+        with open(path_semantic, "w", encoding="utf8") as f:
+            f.write("\n".join(opt) + "\n")
+        logging.info("1a1b1c-done. All Done.")
+    else:
+        logging.info("1c skipped.")
+    ps1abc = []
+
+    logging.info(f"Pretrain抽取特征完毕，可检查输出目录 {os.path.abspath(os.path.join('logs', EXP_NAME))}")
 
 
 def step_train_sovits():
-    pass
+    batch_size = 18
+    total_epoch = 8
+    exp_name = "XiaoLinShuo"
+    text_low_lr_rate = 0.4
+    if_save_latest = True
+    if_save_every_weights = True
+    save_every_epoch = 4
+    gpu_numbers1Ba = "0"
+    pretrained_s2G = "GPT_SoVITS/pretrained_models/s2G488k.pth"
+    pretrained_s2D = "GPT_SoVITS/pretrained_models/s2D488k.pth"
 
+    with open("GPT_SoVITS/configs/s2.json") as f:
+        data = f.read()
+        data = json.loads(data)
+
+    if IS_HALF == False:
+        data["train"]["fp16_run"] = False
+        batch_size = max(1, batch_size // 2)
+    data["train"]["batch_size"] = batch_size
+    data["train"]["epochs"] = total_epoch
+    data["train"]["text_low_lr_rate"] = text_low_lr_rate
+    data["train"]["pretrained_s2G"] = pretrained_s2G
+    data["train"]["pretrained_s2D"] = pretrained_s2D
+    data["train"]["if_save_latest"] = if_save_latest
+    data["train"]["if_save_every_weights"] = if_save_every_weights
+    data["train"]["save_every_epoch"] = save_every_epoch
+    data["train"]["gpu_numbers"] = gpu_numbers1Ba
+    data["data"]["exp_dir"] = data["s2_ckpt_dir"] = os.path.join(EXP_ROOT_DIR, EXP_NAME)
+    data["save_weight_dir"] = SoVITS_weight_root
+    data["name"] = exp_name
+    tmp_config_path = os.path.join(TMP_DIR, f"s2_{EXP_NAME}.json")
+    with open(tmp_config_path, "w") as f: f.write(json.dumps(data))
+
+    # logs_s2用来存放Generator和Discriminator模型的
+    os.makedirs(os.path.join(EXP_ROOT_DIR, EXP_NAME, "logs_s2"), exist_ok=True)
+    cmd = f'python GPT_SoVITS/s2_train.py --config "{tmp_config_path}"'
+    print(cmd)
+    p_train_SoVITS = Popen(cmd, shell=True)
+    p_train_SoVITS.wait()
+    p_train_SoVITS = None
 
 def step_train_gpt():
-    pass
+    batch_size = 18
+    total_epoch = 15
+    exp_name = "XiaoLinShuo"
+    if_dpo = False
+    if_save_latest = True
+    if_save_every_weights = True
+    save_every_epoch = 5
+    gpu_numbers = "0"
+    pretrained_s1 = "GPT_SoVITS/pretrained_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt"
+
+    with open("GPT_SoVITS/configs/s1longer.yaml") as f:
+        data = f.read()
+        data = yaml.load(data, Loader=yaml.FullLoader)
+    s1_dir = os.path.join(EXP_ROOT_DIR, EXP_NAME)
+    os.makedirs("%s/logs_s1" % (s1_dir), exist_ok=True)
+    if (IS_HALF == False):
+        data["train"]["precision"] = "32"
+        batch_size = max(1, batch_size // 2)
+    data["train"]["batch_size"] = batch_size
+    data["train"]["epochs"] = total_epoch
+    data["pretrained_s1"] = pretrained_s1
+    data["train"]["save_every_n_epoch"] = save_every_epoch
+    data["train"]["if_save_every_weights"] = if_save_every_weights
+    data["train"]["if_save_latest"] = if_save_latest
+    data["train"]["if_dpo"] = if_dpo
+    data["train"]["half_weights_save_dir"] = GPT_weight_root
+    data["train"]["exp_name"] = exp_name
+    data["train_semantic_path"] = "%s/6-name2semantic.tsv" % s1_dir
+    data["train_phoneme_path"] = "%s/2-name2text.txt" % s1_dir
+    data["output_dir"] = "%s/logs_s1" % s1_dir
+
+    os.environ["_CUDA_VISIBLE_DEVICES"] = gpu_numbers.replace("-", ",")
+    os.environ["hz"] = "25hz"
+    tmp_config_path = os.path.join(TMP_DIR, f"s1_{EXP_NAME}.yaml")
+    with open(tmp_config_path, "w") as f: f.write(yaml.dump(data, default_flow_style=False))
+    # cmd = '"%s" GPT_SoVITS/s1_train.py --config_file "%s" --train_semantic_path "%s/6-name2semantic.tsv" --train_phoneme_path "%s/2-name2text.txt" --output_dir "%s/logs_s1"'%(python_exec,tmp_config_path,s1_dir,s1_dir,s1_dir)
+    cmd = f'python GPT_SoVITS/s1_train.py --config_file "{tmp_config_path}" '
+    print(cmd)
+    p_train_GPT = Popen(cmd, shell=True)
+    p_train_GPT.wait()
+    p_train_GPT = None
 
 
 if __name__ == '__main__':
+    logging.info(f">>> Start with ExpName='{EXP_NAME}', InputDir='{INPUT_DIR}'")
     # step_slice()
     # step_denoise()
     # step_asr("zh")
+    # step_apply_pretrains()
+    step_train_sovits()
+    step_train_gpt()
 
-    pass
