@@ -74,10 +74,11 @@ class GSVModel:
     """
     @half: 半精度
     """
-    def __init__(self, sovits_model_fp=None, gpt_model_fp=None, is_half=False):
+    def __init__(self, sovits_model_fp=None, gpt_model_fp=None, is_half=False, speaker="default"):
         self.sovits_model_fp = DEFAULT_SOVITS_MODEL_FP if sovits_model_fp is None else sovits_model_fp
         self.gpt_model_fp = DEFAULT_GPT_MODEL_FP if gpt_model_fp is None else gpt_model_fp
         self.is_half = is_half
+        self.speaker = speaker
         logging.info(f">>> Will init GSVModel with:")
         logging.info(f"    [gpt_model_fp]: '{self.gpt_model_fp}'")
         logging.info(f"    [sovits_model_fp]: '{self.sovits_model_fp}'")
