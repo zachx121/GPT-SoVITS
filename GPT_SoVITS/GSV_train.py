@@ -9,20 +9,6 @@ logging.basicConfig(format='[%(asctime)s-%(levelname)s-%(funcName)s]: %(message)
                     level=logging.INFO)
 assert getstatusoutput("ls tools")[0] == 0, "必须在项目根目录下执行不然会有路径问题 e.g. python GPT_SoVITS/GSV_train.py"
 
-LANG = "ZH"
-EXP_NAME = "XiaoLinShuo"
-INPUT_DIR = os.path.expanduser("~/AudioProject/voice_sample/XiaoLinShuo")
-
-IS_HALF = False
-SLICE_DIR = os.path.join(INPUT_DIR, 'sliced')
-DENOISED_DIR = os.path.join(INPUT_DIR, 'denoised')
-ASR_DIR = os.path.join(INPUT_DIR, 'asr')
-ASR_FP = os.path.join(ASR_DIR, os.path.basename(DENOISED_DIR))+".list"
-EXP_ROOT_DIR = "logs"  # 模型训练相关的特征数据路径
-TMP_DIR = os.path.join(EXP_ROOT_DIR, "TEMP_CONFIG"); os.makedirs(TMP_DIR, exist_ok=True)
-SoVITS_weight_root = "SoVITS_weights"  # 模型路径
-GPT_weight_root = "GPT_weights"  # 模型路径
-
 # 人声分离
 # cmd = "demucs --two-stems=vocals xx"
 
@@ -318,7 +304,19 @@ if __name__ == '__main__':
         EXP_NAME = sys.argv[2]
         INPUT_DIR = sys.argv[3]
     else:
-        logging.warning(f">>> sys.argv not enough, will use all default. (i.e. `{' '.join(sys.argv)}`)")
+        logging.error(f">>> sys.argv not enough (<LANG> <EXP_NAME> <INPUT_DIR>). `{' '.join(sys.argv)}`")
+        sys.exit(1)
+
+    IS_HALF = False
+    SLICE_DIR = os.path.join(INPUT_DIR, 'sliced')
+    DENOISED_DIR = os.path.join(INPUT_DIR, 'denoised')
+    ASR_DIR = os.path.join(INPUT_DIR, 'asr')
+    ASR_FP = os.path.join(ASR_DIR, os.path.basename(DENOISED_DIR)) + ".list"
+    EXP_ROOT_DIR = "logs"  # 模型训练相关的特征数据路径
+    TMP_DIR = os.path.join(EXP_ROOT_DIR, "TEMP_CONFIG");
+    os.makedirs(TMP_DIR, exist_ok=True)
+    SoVITS_weight_root = "SoVITS_weights"  # 模型路径
+    GPT_weight_root = "GPT_weights"  # 模型路径
 
     logging.info(f">>> Start with ExpName='{EXP_NAME}', InputDir='{INPUT_DIR}', Language='{LANG}'")
     step_slice()
