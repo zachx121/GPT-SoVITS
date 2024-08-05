@@ -14,11 +14,13 @@ logging.basicConfig(format='[%(asctime)s-%(levelname)s-CLIENT]: %(message)s',
 from GSV_model import GSVModel,ReferenceInfo
 from GSV_train import SoVITS_weight_root, GPT_weight_root
 
-VOICE_SAMPLE_DIR = os.path.expanduser("./voice_sample/")
 D_REF_SUFFIX = "default"
+VOICE_SAMPLE_DIR = os.path.expanduser("./voice_sample/")
 GPT_DIR = os.path.expanduser("./GPT-SoVITS/GPT_weights/")
 SOVITS_DIR = os.path.expanduser("./GPT-SoVITS/SoVITS_weights/")
-
+os.makedirs(VOICE_SAMPLE_DIR, exist_ok=True)
+os.makedirs(GPT_DIR, exist_ok=True)
+os.makedirs(SOVITS_DIR, exist_ok=True)
 
 class Param:
     trace_id: str = None
