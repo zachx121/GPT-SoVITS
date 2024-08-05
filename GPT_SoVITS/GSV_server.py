@@ -166,15 +166,17 @@ if __name__ == '__main__':
             status, output = getstatusoutput(f"wget {url} -P {data_dir}")
             if status != 0:
                 logging.error(f"    Download fail. url is {url}")
-
+        if len(os.listdir(data_dir)) == 0:
+            return "All Audio url failed to download.", 400
         logging.info(f">>> Start Model Training.")
-        cmd = f"python GPT_SoVITS/GSV_train.py {lang} {speaker} {data_dir}"
+        cmd = f"nohup python GPT_SoVITS/GSV_train.py {lang} {speaker} {data_dir} > {speaker}.train 2>&1 &"
         logging.info(f"    cmd is {cmd}")
         status, output = getstatusoutput(cmd)
         if status != 0:
             logging.error("    Model training failed.")
-            return "Model Training failed.", 500
-
+            return "Model Training Failed.", 500
+        else:
+            return "Model Training Started.", 200
 
     @app.route("/model_status", methods=['POST'])
     def model_status():
