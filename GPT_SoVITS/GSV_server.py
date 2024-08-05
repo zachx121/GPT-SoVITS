@@ -157,7 +157,8 @@ if __name__ == '__main__':
         lang = info['lang']
         data_urls = info['data_urls']
         data_dir = os.path.join(VOICE_SAMPLE_DIR, speaker)
-        shutil.rmtree(data_dir)
+        if os.path.exists(data_dir):
+            shutil.rmtree(data_dir)
         os.makedirs(data_dir)
         logging.info(f">>> Start Data Preparing.")
         for url in data_urls:
