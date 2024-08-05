@@ -10,7 +10,7 @@ from subprocess import getstatusoutput
 from flask import Flask, request
 logging.basicConfig(format='[%(asctime)s-%(levelname)s-CLIENT]: %(message)s',
                     datefmt="%Y-%m-%d %H:%M:%S",
-                    level=logging.INFO)
+                    level=logging.DEBUG)
 from GSV_model import GSVModel,ReferenceInfo
 from GSV_train import SoVITS_weight_root, GPT_weight_root
 
@@ -74,6 +74,7 @@ if __name__ == '__main__':
         if request.method != "POST":
             return "Only Support Post", 400
         info = request.get_json()
+        logging.debug(info)
         M = GSVModel(sovits_model_fp=os.path.join(SOVITS_DIR, info['speaker']),
                      gpt_model_fp=os.path.join(GPT_DIR, info['speaker']),
                      speaker=info['speaker'])
@@ -91,6 +92,7 @@ if __name__ == '__main__':
         if request.method != "POST":
             return "Only Support Post", 400
         info = request.get_json()
+        logging.debug(info)
         os.makedirs(os.path.join(VOICE_SAMPLE_DIR, info['speaker']), exist_ok=True)
         suffix = info.get("ref_suffix", D_REF_SUFFIX)
         audio_fp = os.path.join(VOICE_SAMPLE_DIR, info['speaker'], f'ref_audio_{suffix}.wav')
@@ -120,7 +122,9 @@ if __name__ == '__main__':
         if M is None:
             return "No available Model, request `init_model` first.", 400
 
-        p = Param(request.get_json())
+        info = request.get_json()
+        logging.debug(info)
+        p = Param(info)
         if p.speaker != M.speaker:
             return f"inference使用的角色音({p.speaker})和当前初始化的模型角色音({M.speaker})不符", 400
 
@@ -148,6 +152,7 @@ if __name__ == '__main__':
         - data_urls: list[str]
         """
         info = request.get_json()
+        logging.debug(info)
         speaker = info['speaker']
         lang = info['lang']
         data_urls = info['data_urls']
