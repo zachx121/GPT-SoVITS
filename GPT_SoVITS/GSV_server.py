@@ -6,6 +6,7 @@ import logging
 import base64
 import json
 import shutil
+from urllib.parse import unquote
 from subprocess import getstatusoutput
 from flask import Flask, request
 logging.basicConfig(format='[%(asctime)s-%(levelname)s-CLIENT]: %(message)s',
@@ -98,13 +99,13 @@ if __name__ == '__main__':
         audio_fp = os.path.join(VOICE_SAMPLE_DIR, info['speaker'], f'ref_audio_{suffix}.wav')
         text_fp = os.path.join(VOICE_SAMPLE_DIR, info['speaker'], f'ref_text_{suffix}.txt')
 
-        cmd = f"wget {info['ref_audio_url']} -O {audio_fp}"
+        cmd = f"wget \"{info['ref_audio_url']}\" -O {audio_fp}"
         logging.debug(f"will execute `{cmd}`")
         status, output = getstatusoutput(cmd)
         if status != 0:
             return f"Reference Audio Download Wrong", 500
 
-        cmd = f"wget {info['ref_text_url']} -O {text_fp}"
+        cmd = f"wget \"{info['ref_text_url']}\" -O {text_fp}"
         logging.debug(f"will execute `{cmd}`")
         status, output = getstatusoutput(cmd)
         if status != 0:
@@ -163,7 +164,10 @@ if __name__ == '__main__':
         logging.info(f">>> Start Data Preparing.")
         for url in data_urls:
             logging.info(f">>> Downloading Sample from {url}")
-            status, output = getstatusoutput(f"wget {url} -P {data_dir}")
+            filename = os.path.basename(unquote(url).split("?")[0])
+            cmd = f"wget \"{url}\" -O {os.path.join(data_dir,filename)}"
+            logging.debug(cmd)
+            status, output = getstatusoutput(cmd)
             if status != 0:
                 logging.error(f"    Download fail. url is {url}")
         if len(os.listdir(data_dir)) == 0:
