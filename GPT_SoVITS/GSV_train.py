@@ -9,9 +9,9 @@ logging.basicConfig(format='[%(asctime)s-%(levelname)s-%(funcName)s]: %(message)
                     level=logging.INFO)
 assert getstatusoutput("ls tools")[0] == 0, "必须在项目根目录下执行不然会有路径问题 e.g. python GPT_SoVITS/GSV_train.py"
 
-
-INPUT_DIR = os.path.expanduser("~/AudioProject/voice_sample/XiaoLinShuo")
+LANG = "ZH"
 EXP_NAME = "XiaoLinShuo"
+INPUT_DIR = os.path.expanduser("~/AudioProject/voice_sample/XiaoLinShuo")
 
 IS_HALF = False
 SLICE_DIR = os.path.join(INPUT_DIR, 'sliced')
@@ -68,10 +68,10 @@ def step_denoise():
 
 
 # ASR
-def step_asr(lang="zh"):
+def step_asr(lang="ZH"):
     from tools.asr.config import asr_dict
     asr_py = asr_dict["达摩 ASR (中文)"]["path"]
-    if lang != "zh":
+    if lang.upper() != "ZH":
         asr_py = asr_dict["Faster Whisper (多语种)"]["path"]
 
     p_asr = None
@@ -312,13 +312,21 @@ def step_train_gpt():
 
 
 if __name__ == '__main__':
-    logging.info(f">>> Start with ExpName='{EXP_NAME}', InputDir='{INPUT_DIR}'")
-    # step_slice()
-    # step_denoise()
-    # step_asr("zh")
-    # step_apply_pretrains()
-    # step_train_sovits()
-    # step_train_gpt()
+    # python GPT_SoVITS/GSV_train.py ZH XiaoLin ~/AudioProject/voice_sample/XiaoLinShuo
+    if len(sys.argv) == 4:
+        LANG = sys.argv[1]
+        EXP_NAME = sys.argv[2]
+        INPUT_DIR = sys.argv[3]
+    else:
+        logging.warning(f">>> sys.argv not enough, will use all default. (i.e. `{' '.join(sys.argv)}`)")
+
+    logging.info(f">>> Start with ExpName='{EXP_NAME}', InputDir='{INPUT_DIR}', Language='{LANG}'")
+    step_slice()
+    step_denoise()
+    step_asr(LANG)
+    step_apply_pretrains()
+    step_train_sovits()
+    step_train_gpt()
 
     # Show models path
     models_fp = []
