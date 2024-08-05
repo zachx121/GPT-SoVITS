@@ -12,10 +12,10 @@ logging.basicConfig(format='[%(asctime)s-%(levelname)s-CLIENT]: %(message)s',
                     level=logging.INFO)
 from GSV_model import GSVModel,ReferenceInfo
 
-VOICE_SAMPLE_DIR = "/Users/bytedance/AudioProject/voice_sample/"
+VOICE_SAMPLE_DIR = os.path.expanduser("~/AudioProject/voice_sample/")
 D_REF_SUFFIX = "default"
-GPT_DIR = "/Users/bytedance/AudioProject/GPT-SoVITS/GPT_weights/"
-SOVITS_DIR = "/Users/bytedance/AudioProject/GPT-SoVITS/SoVITS_weights/"
+GPT_DIR = os.path.expanduser("~/AudioProject/GPT-SoVITS/GPT_weights/")
+SOVITS_DIR = os.path.expanduser("~/AudioProject/GPT-SoVITS/SoVITS_weights/")
 
 
 class Param:
@@ -57,8 +57,8 @@ class Param:
 if __name__ == '__main__':
     app = Flask(__name__, static_folder="/home/zhoutong", static_url_path="")
     M: GSVModel = None
-    # M = GSVModel(sovits_model_fp="/Users/bytedance/AudioProject/GPT-SoVITS/SoVITS_weights/XiaoLinShuo_e4_s60.pth",
-    #              gpt_model_fp="/Users/bytedance/AudioProject/GPT-SoVITS/GPT_weights/XiaoLinShuo-e15.ckpt")
+    # M = GSVModel(sovits_model_fp="~/AudioProject/GPT-SoVITS/SoVITS_weights/XiaoLinShuo_e4_s60.pth",
+    #              gpt_model_fp="~/AudioProject/GPT-SoVITS/GPT_weights/XiaoLinShuo-e15.ckpt")
 
     @app.route("/init_model", methods=['POST'])
     def init_model():
