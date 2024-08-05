@@ -13,7 +13,6 @@ logging.basicConfig(format='[%(asctime)s-%(levelname)s-CLIENT]: %(message)s',
                     datefmt="%Y-%m-%d %H:%M:%S",
                     level=logging.DEBUG)
 from GSV_model import GSVModel,ReferenceInfo
-from GSV_train import SoVITS_weight_root, GPT_weight_root
 
 D_REF_SUFFIX = "default"
 VOICE_SAMPLE_DIR = os.path.expanduser("./voice_sample/")
@@ -76,8 +75,8 @@ if __name__ == '__main__':
             return "Only Support Post", 400
         info = request.get_json()
         logging.debug(info)
-        M = GSVModel(sovits_model_fp=os.path.join(SOVITS_DIR, info['speaker']),
-                     gpt_model_fp=os.path.join(GPT_DIR, info['speaker']),
+        M = GSVModel(sovits_model_fp=os.path.join(SOVITS_DIR, info['speaker'], "latest.pth"),
+                     gpt_model_fp=os.path.join(GPT_DIR, info['speaker'], "latest.ckpt"),
                      speaker=info['speaker'])
         return "Init Success", 200
 
@@ -190,12 +189,12 @@ if __name__ == '__main__':
         """
         info = request.get_json()
         speaker_list = info['speaker_list']
-        status = []
+        status = {}
         for s in speaker_list:
-            os.path.exists(os.path.join(SoVITS_weight_root, s))
-
-
-        pass
+            cond1 = os.path.exists(os.path.join(SOVITS_DIR, info['speaker'], "latest.pth"))
+            cond2 = os.path.exists(os.path.join(GPT_DIR, info['speaker'], "latest.ckpt"))
+            status[s] = cond1 and cond2
+        return json.dumps(status), 200
 
     app.run(host="0.0.0.0", port=6006)
 
