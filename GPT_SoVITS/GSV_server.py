@@ -1,5 +1,33 @@
+"""
+[route]: /train_model
+[json-params]: {speaker:"..", lang:"zh", data_urls:["...", "..." ]}
+
+[route]: /model_status
+[json-params]: {speaker_list: ["..", ".."]}
+
+
+[route]: /add_reference
+[json-params]:
+{"speaker": "..",
+ "ref_audio_url": "...",
+ "ref_text_url": "...", 注意文本格式文本是 "zh_cn|你好我是四郎" 这样的，即按竖线分割的，前面是语言后面是音频的文本
+ "ref_suffix":".." optional 可以直接不传，传了的话后面推理接口也要传。当可以提供多个参考音频时，可以用情绪作为后缀}
+
+[route]: /init_model
+[json-params]: {speaker:"..."}
+
+[route]: /inference
+[json-params]:
+    trace_id: str = None
+    speaker: str = None  # 角色音
+    text: str = None  # 要合成的文本
+    lang: str = None  # 合成音频的语言 (e.g. "JP", "ZH", "EN", "ZH_EN", "JP_EN")
+    use_ref: bool = True  # 推理时是否使用参考音频的情绪
+    ref_suffix: str = D_REF_SUFFIX  # 可不传，用于指定参考音频的后缀
+"""
 
 import torch
+import time
 import numpy as np
 import os
 import logging
@@ -9,6 +37,7 @@ import shutil
 from urllib.parse import unquote
 from subprocess import getstatusoutput
 from flask import Flask, request
+import soundfile as sf
 logging.basicConfig(format='[%(asctime)s-%(levelname)s-CLIENT]: %(message)s',
                     datefmt="%Y-%m-%d %H:%M:%S",
                     level=logging.DEBUG)
@@ -26,13 +55,16 @@ class Param:
     lang: str = None  # 合成音频的语言 (e.g. cn/en/fr/es)
     use_ref: bool = True  # 推理时是否使用参考音频的情绪
     ref_suffix: str = D_REF_SUFFIX  # 当可提供多个参考音频时，指定参考音频的后缀
+    nocut: bool = True  # 是否不做切分
 
     # 模型接收的语言参数名和通用的不一样，重新映射
     @property
     def tgt_lang(self):
         # eng/cmn/eng/deu/fra/ita/spa
         # {"JP": "all_ja", "ZH": "all_zh", "EN": "en", "ZH_EN": "zh", "JP_EN": "ja", "AUTO": "auto"}
-        lang = self.lang if self.lang in ["JP", "ZH", "EN", "ZH_EN", "JP_EN"] else "AUTO"
+        # lang = self.lang if self.lang in ["JP", "ZH", "EN", "ZH_EN", "JP_EN"] else "AUTO"
+        _lang_map = {"zh_cn": "ZH", "en_us": "EN"}
+        lang = _lang_map.get(self.lang, "AUTO")
         return lang
 
     @property
@@ -41,7 +73,7 @@ class Param:
         # ~/tmp/ref_audio.wav
         audio_fp = os.path.join(ref_dir, f'ref_audio_{self.ref_suffix}.wav')
         # ~/tmp/ref_text.txt 里面必须是竖线分割的<语言>|<文本> e.g."ZH|语音的具体文本内容。"
-        _text = open(os.path.join(ref_dir, f'ref_text_{self.ref_suffix}.wav')).readlines()[0].strip()
+        _text = open(os.path.join(ref_dir, f'ref_text_{self.ref_suffix}.txt')).readlines()[0].strip()
         lang, text = _text.split("|")
         return ReferenceInfo(audio_fp=audio_fp, text=text, lang=lang)
 
@@ -75,8 +107,8 @@ if __name__ == '__main__':
             return "Only Support Post", 400
         info = request.get_json()
         logging.debug(info)
-        M = GSVModel(sovits_model_fp=os.path.join(SOVITS_DIR, info['speaker'], "latest.pth"),
-                     gpt_model_fp=os.path.join(GPT_DIR, info['speaker'], "latest.ckpt"),
+        M = GSVModel(sovits_model_fp=os.path.join(SOVITS_DIR, info['speaker'], info['speaker']+".latest.pth"),
+                     gpt_model_fp=os.path.join(GPT_DIR, info['speaker'], info['speaker']+".latest.ckpt"),
                      speaker=info['speaker'])
         return "Init Success", 200
 
@@ -109,6 +141,7 @@ if __name__ == '__main__':
         status, output = getstatusoutput(cmd)
         if status != 0:
             return f"Reference Text Download Wrong", 500
+        return "Reference added.", 200
 
     @app.route("/inference", methods=['POST'])
     def inference():
@@ -132,15 +165,16 @@ if __name__ == '__main__':
                                     target_lang=p.tgt_lang,
                                     ref_info=p.ref_info,
                                     top_k=1, top_p=0, temperature=0,
-                                    ref_free=p.ref_free, no_cut=True)
+                                    ref_free=p.ref_free, no_cut=p.nocut)
         wav_arr_int16 = (np.clip(wav_arr, -1.0, 1.0) * 32767).astype(np.int16)
         rsp = {"trace_id": p.trace_id,
-               "audio_buffer": base64.b64encode(wav_arr.tobytes()).decode(),
+               # "audio_buffer": base64.b64encode(wav_arr.tobytes()).decode(),
                "audio_buffer_int16": base64.b64encode(wav_arr_int16.tobytes()).decode(),
                "sample_rate": wav_sr,
                "status": "0",
                "msg": "success."}
         rsp = json.dumps(rsp)
+        sf.write(f"output_{time.time():.0f}.wav", wav_arr, wav_sr)
         return rsp, 200
 
     @app.route("/train_model", methods=['POST'])
@@ -185,14 +219,14 @@ if __name__ == '__main__':
     def model_status():
         """
         http params:
-        - speaker_list: str
+        - speaker_list: list[str]
         """
         info = request.get_json()
         speaker_list = info['speaker_list']
         status = {}
         for s in speaker_list:
-            cond1 = os.path.exists(os.path.join(SOVITS_DIR, info['speaker'], "latest.pth"))
-            cond2 = os.path.exists(os.path.join(GPT_DIR, info['speaker'], "latest.ckpt"))
+            cond1 = os.path.exists(os.path.join(SOVITS_DIR, s, s+".latest.pth"))
+            cond2 = os.path.exists(os.path.join(GPT_DIR, s, s+".latest.ckpt"))
             status[s] = cond1 and cond2
         return json.dumps(status), 200
 

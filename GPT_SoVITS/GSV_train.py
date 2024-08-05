@@ -1,5 +1,6 @@
 import logging
 import os
+import shutil
 import sys
 import json
 import yaml
@@ -11,6 +12,14 @@ assert getstatusoutput("ls tools")[0] == 0, "必须在项目根目录下执行�
 
 # 人声分离
 # cmd = "demucs --two-stems=vocals xx"
+
+
+def get_latest_fp(inp_dir):
+    _inp_dir = os.path.expanduser(inp_dir)
+    fp = sorted(os.listdir(_inp_dir),
+                key=lambda x: os.path.getmtime(os.path.join(_inp_dir, x)), reverse=True)[0]
+    return fp
+
 
 # 切片
 def step_slice():
@@ -211,10 +220,9 @@ def step_apply_pretrains():
     logging.info(f"Pretrain抽取特征完毕，可检查输出目录 {os.path.abspath(os.path.join('logs', EXP_NAME))}")
 
 
-def step_train_sovits():
+def step_train_sovits(total_epoch=8):
     batch_size = 18
-    total_epoch = 8
-    exp_name = "XiaoLinShuo"
+    exp_name = EXP_NAME
     text_low_lr_rate = 0.4
     if_save_latest = True
     if_save_every_weights = True
@@ -248,15 +256,15 @@ def step_train_sovits():
     # logs_s2用来存放Generator和Discriminator模型的
     os.makedirs(os.path.join(EXP_ROOT_DIR, EXP_NAME, "logs_s2"), exist_ok=True)
     cmd = f'python GPT_SoVITS/s2_train.py --config "{tmp_config_path}"'
-    print(cmd)
+    logging.info(cmd)
     p_train_SoVITS = Popen(cmd, shell=True)
     p_train_SoVITS.wait()
     p_train_SoVITS = None
 
-def step_train_gpt():
+
+def step_train_gpt(total_epoch=15):
     batch_size = 18
-    total_epoch = 15
-    exp_name = "XiaoLinShuo"
+    exp_name = EXP_NAME
     if_dpo = False
     if_save_latest = True
     if_save_every_weights = True
@@ -301,6 +309,8 @@ if __name__ == '__main__':
     # python GPT_SoVITS/GSV_train.py ZH XiaoLin ~/AudioProject/voice_sample/XiaoLinShuo
     if len(sys.argv) == 4:
         LANG = sys.argv[1]
+        _lang_dict = {"zh_cn": "ZH", "en_us": "EN"}
+        LANG = _lang_dict.get(LANG, "ZH")
         EXP_NAME = sys.argv[2]
         INPUT_DIR = sys.argv[3]
     else:
@@ -313,18 +323,28 @@ if __name__ == '__main__':
     ASR_DIR = os.path.join(INPUT_DIR, 'asr')
     ASR_FP = os.path.join(ASR_DIR, os.path.basename(DENOISED_DIR)) + ".list"
     EXP_ROOT_DIR = "logs"  # 模型训练相关的特征数据路径
-    TMP_DIR = os.path.join(EXP_ROOT_DIR, "TEMP_CONFIG");
-    os.makedirs(TMP_DIR, exist_ok=True)
-    SoVITS_weight_root = "SoVITS_weights"  # 模型路径
-    GPT_weight_root = "GPT_weights"  # 模型路径
+    TMP_DIR = os.path.join(EXP_ROOT_DIR, "TEMP_CONFIG")
+    SoVITS_weight_root = os.path.join("SoVITS_weights", EXP_NAME)  # 模型路径
+    GPT_weight_root = os.path.join("GPT_weights", EXP_NAME)  # 模型路径
 
     logging.info(f">>> Start with ExpName='{EXP_NAME}', InputDir='{INPUT_DIR}', Language='{LANG}'")
+    os.makedirs(TMP_DIR, exist_ok=True)
+    os.makedirs(SoVITS_weight_root, exist_ok=True)
+    os.makedirs(GPT_weight_root, exist_ok=True)
+    shutil.rmtree(os.path.join(EXP_ROOT_DIR, EXP_NAME))
+
     step_slice()
     step_denoise()
     step_asr(LANG)
     step_apply_pretrains()
     step_train_sovits()
     step_train_gpt()
+
+    # todo 模型目录xx_root应该按EXPNAME进行区分？
+    latest_pth = get_latest_fp(SoVITS_weight_root)
+    os.rename(os.path.join(SoVITS_weight_root, latest_pth), os.path.join(SoVITS_weight_root, EXP_NAME+".latest.pth"))
+    latest_ckpt = get_latest_fp(GPT_weight_root)
+    os.rename(os.path.join(GPT_weight_root, latest_ckpt), os.path.join(GPT_weight_root, EXP_NAME + ".latest.ckpt"))
 
     # Show models path
     models_fp = []

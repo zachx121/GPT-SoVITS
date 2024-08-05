@@ -29,7 +29,10 @@ DEFAULT_GPT_MODEL_FP = "GPT_SoVITS/pretrained_models/s1bert25hz-2kh-longer-epoch
 DEFAULT_SOVITS_MODEL_FP = "GPT_SoVITS/pretrained_models/s2G488k.pth"
 CNHUBERT_MODEL_FP = "GPT_SoVITS/pretrained_models/chinese-hubert-base"
 BERT_MODEL_FP = "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large"
-LANG_MAP = {"JP": "all_ja", "ZH": "all_zh", "EN": "en", "ZH_EN": "zh", "JP_EN": "ja", "AUTO": "auto"}
+LANG_MAP = {"JP": "all_ja",
+            "ZH": "all_zh", "EN": "en",
+            "zh_cn": "all_zh", "en_us": "en",
+            "ZH_EN": "zh", "JP_EN": "ja", "AUTO": "auto"}
 SPLITS = {"，", "。", "？", "！", ",", ".", "?", "!", "~", ":", "：", "—", "…", }
 TMP_DIR = "./#tmp_output"
 os.makedirs(TMP_DIR, exist_ok=True)
