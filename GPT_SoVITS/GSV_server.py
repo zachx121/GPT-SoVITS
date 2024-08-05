@@ -16,11 +16,8 @@ from GSV_train import SoVITS_weight_root, GPT_weight_root
 
 D_REF_SUFFIX = "default"
 VOICE_SAMPLE_DIR = os.path.expanduser("./voice_sample/")
-GPT_DIR = os.path.expanduser("./GPT-SoVITS/GPT_weights/")
-SOVITS_DIR = os.path.expanduser("./GPT-SoVITS/SoVITS_weights/")
-os.makedirs(VOICE_SAMPLE_DIR, exist_ok=True)
-os.makedirs(GPT_DIR, exist_ok=True)
-os.makedirs(SOVITS_DIR, exist_ok=True)
+GPT_DIR = os.path.expanduser("./GPT_weights/")
+SOVITS_DIR = os.path.expanduser("./SoVITS_weights/")
 
 class Param:
     trace_id: str = None
@@ -59,7 +56,10 @@ class Param:
 
 
 if __name__ == '__main__':
-    app = Flask(__name__, static_folder="/home/zhoutong", static_url_path="")
+    os.makedirs(VOICE_SAMPLE_DIR, exist_ok=True)
+    os.makedirs(GPT_DIR, exist_ok=True)
+    os.makedirs(SOVITS_DIR, exist_ok=True)
+    app = Flask(__name__, static_folder="./static_folder", static_url_path="")
     M: GSVModel = None
     # M = GSVModel(sovits_model_fp="~/AudioProject/GPT-SoVITS/SoVITS_weights/XiaoLinShuo_e4_s60.pth",
     #              gpt_model_fp="~/AudioProject/GPT-SoVITS/GPT_weights/XiaoLinShuo-e15.ckpt")
