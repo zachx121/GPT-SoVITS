@@ -5,17 +5,19 @@ import os
 import logging
 import base64
 import json
+import shutil
 from subprocess import getstatusoutput
 from flask import Flask, request
 logging.basicConfig(format='[%(asctime)s-%(levelname)s-CLIENT]: %(message)s',
                     datefmt="%Y-%m-%d %H:%M:%S",
                     level=logging.INFO)
 from GSV_model import GSVModel,ReferenceInfo
+from GSV_train import SoVITS_weight_root, GPT_weight_root
 
-VOICE_SAMPLE_DIR = os.path.expanduser("~/AudioProject/voice_sample/")
+VOICE_SAMPLE_DIR = os.path.expanduser("./voice_sample/")
 D_REF_SUFFIX = "default"
-GPT_DIR = os.path.expanduser("~/AudioProject/GPT-SoVITS/GPT_weights/")
-SOVITS_DIR = os.path.expanduser("~/AudioProject/GPT-SoVITS/SoVITS_weights/")
+GPT_DIR = os.path.expanduser("./GPT-SoVITS/GPT_weights/")
+SOVITS_DIR = os.path.expanduser("./GPT-SoVITS/SoVITS_weights/")
 
 
 class Param:
@@ -148,6 +150,7 @@ if __name__ == '__main__':
         lang = info['lang']
         data_urls = info['data_urls']
         data_dir = os.path.join(VOICE_SAMPLE_DIR, speaker)
+        shutil.rmtree(data_dir)
         os.makedirs(data_dir)
         logging.info(f">>> Start Data Preparing.")
         for url in data_urls:
@@ -163,6 +166,22 @@ if __name__ == '__main__':
         if status != 0:
             logging.error("    Model training failed.")
             return "Model Training failed.", 500
+
+
+    @app.route("/model_status", methods=['POST'])
+    def model_status():
+        """
+        http params:
+        - speaker_list: str
+        """
+        info = request.get_json()
+        speaker_list = info['speaker_list']
+        status = []
+        for s in speaker_list:
+            os.path.exists(os.path.join(SoVITS_weight_root, s))
+
+
+        pass
 
     app.run(host="0.0.0.0", port=6006)
 
