@@ -8,6 +8,7 @@ from subprocess import Popen,getstatusoutput
 logging.basicConfig(format='[%(asctime)s-%(levelname)s-%(funcName)s]: %(message)s',
                     datefmt="%Y-%m-%d %H:%M:%S",
                     level=logging.INFO)
+logging.getLogger('modelscope').setLevel(logging.WARNING)
 assert getstatusoutput("ls tools")[0] == 0, "必须在项目根目录下执行不然会有路径问题 e.g. python GPT_SoVITS/GSV_train.py"
 
 # 人声分离

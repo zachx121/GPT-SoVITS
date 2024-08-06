@@ -206,6 +206,7 @@ if __name__ == '__main__':
         if len(os.listdir(data_dir)) == 0:
             return "All Audio url failed to download.", 400
         logging.info(f">>> Start Model Training.")
+        # python GPT_SoVITS/GSV_train.py zh_cn test_silang1636 voice_sample/test_silang1636 > test_silang1636.train
         cmd = f"nohup python GPT_SoVITS/GSV_train.py {lang} {speaker} {data_dir} > {speaker}.train 2>&1 &"
         logging.info(f"    cmd is {cmd}")
         status, output = getstatusoutput(cmd)
