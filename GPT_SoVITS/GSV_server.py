@@ -52,7 +52,7 @@ class Param:
     trace_id: str = None
     speaker: str = None  # 角色音
     text: str = None  # 要合成的文本
-    lang: str = None  # 合成音频的语言 (e.g. cn/en/fr/es)
+    lang: str = None  # 合成音频的语言 (e.g. zh_cn/en_us)
     use_ref: bool = True  # 推理时是否使用参考音频的情绪
     ref_suffix: str = D_REF_SUFFIX  # 当可提供多个参考音频时，指定参考音频的后缀
     nocut: bool = True  # 是否不做切分
@@ -95,6 +95,19 @@ if __name__ == '__main__':
     M: GSVModel = None
     # M = GSVModel(sovits_model_fp="~/AudioProject/GPT-SoVITS/SoVITS_weights/XiaoLinShuo_e4_s60.pth",
     #              gpt_model_fp="~/AudioProject/GPT-SoVITS/GPT_weights/XiaoLinShuo-e15.ckpt")
+
+    @app.route("/init_status", methods=['POST'])
+    def init_status():
+        """
+        """
+        global M
+        if request.method != "POST":
+            return "Only Support Post", 400
+        if M is None:
+            return json.dumps({"is_init": 0}), 200
+        else:
+            return json.dumps({"is_init": 1}), 200
+
 
     @app.route("/init_model", methods=['POST'])
     def init_model():
@@ -219,6 +232,7 @@ if __name__ == '__main__':
     @app.route("/model_status", methods=['POST'])
     def model_status():
         """
+        模型训练是否完成
         http params:
         - speaker_list: list[str]
         """
