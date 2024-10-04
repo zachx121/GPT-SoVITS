@@ -43,10 +43,14 @@ logging.basicConfig(format='[%(asctime)s-%(levelname)s-CLIENT]: %(message)s',
                     level=logging.DEBUG)
 from GSV_model import GSVModel,ReferenceInfo
 
+app = Flask(__name__, static_folder="./static_folder", static_url_path="")
 D_REF_SUFFIX = "default"
-VOICE_SAMPLE_DIR = os.path.expanduser("./voice_sample/")
-GPT_DIR = os.path.expanduser("./GPT_weights/")
-SOVITS_DIR = os.path.expanduser("./SoVITS_weights/")
+VOICE_SAMPLE_DIR = os.path.abspath(os.path.expanduser("./voice_sample/"))
+GPT_DIR = os.path.abspath(os.path.expanduser("./GPT_weights/"))
+SOVITS_DIR = os.path.abspath(os.path.expanduser("./SoVITS_weights/"))
+logging.info(f"VOICE_SAMPLE_DIR: {VOICE_SAMPLE_DIR}")
+logging.info(f"GPT_DIR: {GPT_DIR}")
+logging.info(f"SOVITS_DIR: {SOVITS_DIR}")
 
 class Param:
     trace_id: str = None
@@ -91,22 +95,22 @@ if __name__ == '__main__':
     os.makedirs(VOICE_SAMPLE_DIR, exist_ok=True)
     os.makedirs(GPT_DIR, exist_ok=True)
     os.makedirs(SOVITS_DIR, exist_ok=True)
-    app = Flask(__name__, static_folder="./static_folder", static_url_path="")
-    M: GSVModel = None
+    M_dict: dict[str:GSVModel] = {}
+    # M: GSVModel = None
     # M = GSVModel(sovits_model_fp="~/AudioProject/GPT-SoVITS/SoVITS_weights/XiaoLinShuo_e4_s60.pth",
     #              gpt_model_fp="~/AudioProject/GPT-SoVITS/GPT_weights/XiaoLinShuo-e15.ckpt")
 
-    @app.route("/init_status", methods=['POST'])
-    def init_status():
-        """
-        """
-        global M
-        if request.method != "POST":
-            return "Only Support Post", 400
-        if M is None:
-            return json.dumps({"is_init": 0}), 200
-        else:
-            return json.dumps({"is_init": 1}), 200
+    # @app.route("/init_status", methods=['POST'])
+    # def init_status():
+    #     """
+    #     """
+    #     global M
+    #     if request.method != "POST":
+    #         return "Only Support Post", 400
+    #     if M is None:
+    #         return json.dumps({"is_init": 0}), 200
+    #     else:
+    #         return json.dumps({"is_init": 1}), 200
 
 
     @app.route("/init_model", methods=['POST'])
@@ -115,15 +119,46 @@ if __name__ == '__main__':
         http params:
         - speaker:str
         """
-        global M
-        if request.method != "POST":
-            return "Only Support Post", 400
+        res = {"status": 0, "msg": "", "result": ""}
         info = request.get_json()
         logging.debug(info)
+        if info["speaker"] in M_dict:
+            res['status'] = 1
+            res['msg'] = "Already Inited"
+            return json.dumps(res)
+
+        import torch
+        device = torch.device("cuda")
+        mem_allocated = torch.cuda.memory_allocated(device) / 1024 ** 2
+        mem_cached = torch.cuda.memory_cached(device) / 1024 ** 2
+        total_mem = torch.cuda.get_device_properties(device).total_memory / 1024 ** 2
+        used_mem = mem_allocated + mem_cached
+        free_mem = total_mem - used_mem
+        logging.debug(f"Total memory: {total_mem} MB, Used memory: {used_mem} MB, Free memory: {free_mem} MB")
+        if free_mem <= 2800*2:
+            res['status'] = 1
+            res['msg'] = 'GPU OOM'
+            return json.dumps(res)
         M = GSVModel(sovits_model_fp=os.path.join(SOVITS_DIR, info['speaker'], info['speaker']+".latest.pth"),
                      gpt_model_fp=os.path.join(GPT_DIR, info['speaker'], info['speaker']+".latest.ckpt"),
                      speaker=info['speaker'])
-        return "Init Success", 200
+        M_dict[info['speaker']] = M
+        res['msg'] = "Init Success"
+        return json.dumps(res)
+
+
+    @app.route("/unload_model", methods=['POST'])
+    def unload_model():
+        info = request.get_json()
+        logging.debug(info)
+        del M_dict[info["speaker"]]
+        import gc
+        gc.collect()
+        torch.cuda.empty_cache()
+        res = {"status": 0,
+               "msg": "Model Unloaded",
+               "result": ""}
+        return json.dumps(res)
 
     @app.route("/add_reference", methods=['POST'])
     def add_reference():
@@ -147,14 +182,24 @@ if __name__ == '__main__':
         logging.debug(f"will execute `{cmd}`")
         status, output = getstatusoutput(cmd)
         if status != 0:
-            return f"Reference Audio Download Wrong", 500
+            res = json.dumps({"status": 0,
+                              "msg": f"Reference Audio Download Wrong",
+                              "result": ""})
+            return res
 
         cmd = f"wget \"{info['ref_text_url']}\" -O {text_fp}"
         logging.debug(f"will execute `{cmd}`")
         status, output = getstatusoutput(cmd)
         if status != 0:
-            return f"Reference Text Download Wrong", 500
-        return "Reference added.", 200
+            res = json.dumps({"status": 0,
+                              "msg": f"Reference Text Download Wrong",
+                              "result": ""})
+            return res
+
+        res = json.dumps({"status": 0,
+                          "msg": "Reference added.",
+                          "result": ""})
+        return res
 
     @app.route("/inference", methods=['POST'])
     def inference():
@@ -162,18 +207,17 @@ if __name__ == '__main__':
         http params:
         - 以Param类的成员变量为准
         """
-        global M
         if request.method != "POST":
             return "Only Support Post", 400
-        if M is None:
-            return "No available Model, request `init_model` first.", 400
+        if len(M_dict) == 0:
+            return "No available Model", 400
 
         info = request.get_json()
         logging.debug(info)
         p = Param(info)
-        if p.speaker != M.speaker:
-            return f"inference使用的角色音({p.speaker})和当前初始化的模型角色音({M.speaker})不符", 400
-
+        if p.speaker not in M_dict:
+            return f"inference使用的角色音({p.speaker})未被加载。已加载角色音: {M_dict.keys()}", 400
+        M = M_dict[p.speaker]
         wav_sr, wav_arr = M.predict(target_text=p.text,
                                     target_lang=p.tgt_lang,
                                     ref_info=p.ref_info,
@@ -184,9 +228,11 @@ if __name__ == '__main__':
                # "audio_buffer": base64.b64encode(wav_arr.tobytes()).decode(),
                "audio_buffer_int16": base64.b64encode(wav_arr_int16.tobytes()).decode(),
                "sample_rate": wav_sr,
-               "status": "0",
+               "status": 0,
                "msg": "success."}
-        rsp = json.dumps(rsp)
+        rsp = json.dumps({"status": 0,
+                          "msg": "",
+                          "result": rsp})
         sf.write(f"output_{time.time():.0f}.wav", wav_arr, wav_sr)
         return rsp, 200
 
@@ -225,12 +271,29 @@ if __name__ == '__main__':
         status, output = getstatusoutput(cmd)
         if status != 0:
             logging.error("    Model training failed.")
-            return "Model Training Failed.", 500
+            res = json.dumps({"status": 0,
+                              "msg": "Model Training Failed",
+                              "result": ""})
+            st_code = 500
         else:
-            return "Model Training Started.", 200
+            res = json.dumps({"status": 0,
+                              "msg": "Model Training Started.",
+                              "result": ""})
+            st_code = 500
+        return res, st_code
 
     @app.route("/model_status", methods=['POST'])
     def model_status():
+        all_loaded_speakers = list(M_dict.keys())
+        logging.debug(", ".join(all_loaded_speakers))
+        res = json.dumps({"status": 0,
+                          "msg": "",
+                          "result": all_loaded_speakers})
+        return res, 200
+
+    @DeprecationWarning
+    @app.route("/is_model_available", methods=['POST'])
+    def is_model_available():
         """
         模型训练是否完成
         http params:
@@ -246,5 +309,5 @@ if __name__ == '__main__':
         return json.dumps(status), 200
 
     app.run(host="0.0.0.0", port=6006)
-
-
+    # 一个模型2.8GB, 3090一共24GB
+    # gunicorn -w 4 -b 0.0.0.0:6006 GPT_SoVITS.GSV_server:app

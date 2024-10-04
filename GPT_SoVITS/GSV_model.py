@@ -1,5 +1,7 @@
 
 import logging
+import sys
+
 logging.getLogger('matplotlib').setLevel(logging.WARNING)
 logging.getLogger('jieba_fast').setLevel(logging.WARNING)
 logging.basicConfig(format='[%(asctime)s-%(levelname)s-%(funcName)s]: %(message)s',
@@ -391,20 +393,30 @@ class GSVModel:
 
 
 if __name__ == '__main__':
+    sovits_model = "/Users/bytedance/AudioProject/GPT-SoVITS/SoVITS_weights/x_e8_s96.pth"
+    gpt_model = "/Users/bytedance/AudioProject/GPT-SoVITS/GPT_weights/x-e15.ckpt"
+    ref_audio = ReferenceInfo(audio_fp="/Users/bytedance/AudioProject/voice_sample/xn/vocals_as_reference.wav",
+                              text="我想问一下，就是咱们那个疫情防控政策",
+                              lang="ZH")
+    M = GSVModel(sovits_model_fp=sovits_model, gpt_model_fp=gpt_model)
+
+    sr, audio = M.predict(target_text="c测试",
+                          target_lang="ZH",
+                          ref_info=ref_audio,
+                          top_k=1, top_p=0, temperature=0,
+                          ref_free=False, no_cut=True)
+    sf.write(os.path.join("/Users/bytedance/Downloads", f"output_{time.time():.0f}.wav"), audio, sr)
+
+    sys.exit(0)
+
     # sovits_model = "/Users/bytedance/AudioProject/GPT-SoVITS/SoVITS_weights/XiaoLinShuo_e4_s60.pth"
     # gpt_model = "/Users/bytedance/AudioProject/GPT-SoVITS/GPT_weights/XiaoLinShuo-e15.ckpt"
-    # ref_audio = ReferenceInfo(audio_fp="/Users/bytedance/AudioProject/voice_sample/Xu_Ran/vocals_as_reference.wav",
-    #                           text="我想问一下，就是咱们那个疫情防控政策",
+    # ref_audio = ReferenceInfo(audio_fp="/Users/bytedance/AudioProject/voice_sample/XiaoLinShuo/denoised/2_vocals.wav_0005554240_0005717760.wav",
+    #                           text="所以说啊这二十年真的是在斯大林的带领下，把前苏联的经济带上了一个新高度。",
     #                           lang="ZH")
-
-    sovits_model = "/Users/bytedance/AudioProject/GPT-SoVITS/SoVITS_weights/XiaoLinShuo_e4_s60.pth"
-    gpt_model = "/Users/bytedance/AudioProject/GPT-SoVITS/GPT_weights/XiaoLinShuo-e15.ckpt"
-    ref_audio = ReferenceInfo(audio_fp="/Users/bytedance/AudioProject/voice_sample/XiaoLinShuo/denoised/2_vocals.wav_0005554240_0005717760.wav",
-                              text="所以说啊这二十年真的是在斯大林的带领下，把前苏联的经济带上了一个新高度。",
-                              lang="ZH")
-    ref_audio = ReferenceInfo(audio_fp="/Users/bytedance/AudioProject/voice_sample/XiaoLinShuo/denoised/2_vocals.wav_0004883520_0005045120.wav",
-                              text="于是一九二八年之后，斯大林的前三个五年计划哈，那可谓是效果拔群。",
-                              lang="ZH")
+    # ref_audio = ReferenceInfo(audio_fp="/Users/bytedance/AudioProject/voice_sample/XiaoLinShuo/denoised/2_vocals.wav_0004883520_0005045120.wav",
+    #                           text="于是一九二八年之后，斯大林的前三个五年计划哈，那可谓是效果拔群。",
+    #                           lang="ZH")
 
     M = GSVModel(sovits_model_fp=sovits_model, gpt_model_fp=gpt_model)
 
