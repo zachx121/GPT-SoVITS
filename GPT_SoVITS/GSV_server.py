@@ -26,6 +26,7 @@
     ref_suffix: str = D_REF_SUFFIX  # 可不传，用于指定参考音频的后缀
 """
 
+import re
 import librosa
 import torch
 import time
@@ -363,7 +364,11 @@ def check_training_status():
     cmd = "ps -ef | grep 'nohup python GPT_SoVITS/GSV_train.py' | grep -v 'grep'"
     status, output = getstatusoutput(cmd)
     assert status != 0, f"cmd status is not zeros. cmd:'{cmd}'"
-    return len(output.split("\n"))
+    sid_list = [re.split("\s+", i)[10] for i in output.split("\n")]
+    res = json.dumps({"status": 0,
+                      "msg": "success",
+                      "result": json.dumps(sid_list)})
+    return res
 
 
 @app.route("/model_status", methods=['POST'])
