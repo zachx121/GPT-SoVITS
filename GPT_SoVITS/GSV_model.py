@@ -258,14 +258,10 @@ class GSVModel:
         )
         return spec
 
-    def get_tts_wav(self, ref_wav_path, prompt_text, prompt_language, text, text_language,
-                    top_k=20, top_p=0.6, temperature=0.6, ref_free=False, no_cut=False):
+    def get_tts_wav(self, text, text_language,
+                    ref_free=False, ref_wav_path=None, prompt_text=None, prompt_language=None,
+                    top_k=20, top_p=0.6, temperature=0.6, no_cut=False):
         
-        # >>> format ref_text
-        prompt_text = prompt_text.strip("\n")
-        if prompt_text[-1] not in SPLITS:
-            prompt_text += "。" if prompt_language != "en" else "."
-        logging.debug(f">>> Formatted Reference Text:\n'{prompt_text}'")
         # >>> format target_text
         text = text.strip("\n")
         text = replace_consecutive_punctuation(text)
@@ -276,28 +272,6 @@ class GSVModel:
         zero_wav = np.zeros(int(self.hps.data.sampling_rate * 0.3),
                             dtype=np.float16 if self.is_half else np.float32)
 
-        with torch.no_grad():
-            wav16k, sr = librosa.load(ref_wav_path, sr=16000)
-            if (wav16k.shape[0] > 160000 or wav16k.shape[0] < 48000):
-                raise OSError("参考音频在3~10秒范围外，请更换！")
-            wav16k = torch.from_numpy(wav16k)
-            zero_wav_torch = torch.from_numpy(zero_wav)
-            if self.is_half:
-                wav16k = wav16k.half().to(DEVICE)
-                zero_wav_torch = zero_wav_torch.half().to(DEVICE)
-            else:
-                wav16k = wav16k.to(DEVICE)
-                zero_wav_torch = zero_wav_torch.to(DEVICE)
-            wav16k = torch.cat([wav16k, zero_wav_torch])
-            ssl_content = self.ssl_model.model(wav16k.unsqueeze(0))[
-                "last_hidden_state"
-            ].transpose(
-                1, 2
-            )  # .float()
-            codes = self.vq_model.extract_latent(ssl_content)
-            prompt_semantic = codes[0, 0]
-            prompt = prompt_semantic.unsqueeze(0).to(DEVICE)
-
         # 不切，或直接按标点符号切
         text = text if no_cut else cut5(text)
         while "\n\n" in text:
@@ -307,8 +281,39 @@ class GSVModel:
         texts = process_text(texts)
         texts = merge_short_text_in_array(texts, 5)
         audio_opt = []
-        phones1, bert1, norm_text1 = self.get_phones_and_bert(prompt_text, prompt_language)
-            
+
+        # Reference
+        phones1, bert1, prompt = None, None, None
+        if not ref_free:
+            # >>> format ref_text
+            prompt_text = prompt_text.strip("\n")
+            if prompt_text[-1] not in SPLITS:
+                prompt_text += "。" if prompt_language != "en" else "."
+            logging.debug(f">>> Formatted Reference Text:\n'{prompt_text}'")
+            phones1, bert1, norm_text1 = self.get_phones_and_bert(prompt_text, prompt_language)
+            # prompt
+            with torch.no_grad():
+                wav16k, sr = librosa.load(ref_wav_path, sr=16000)
+                if wav16k.shape[0] > 160000 or wav16k.shape[0] < 48000:
+                    raise OSError("参考音频在3~10秒范围外，请更换！")
+                wav16k = torch.from_numpy(wav16k)
+                zero_wav_torch = torch.from_numpy(zero_wav)
+                if self.is_half:
+                    wav16k = wav16k.half().to(DEVICE)
+                    zero_wav_torch = zero_wav_torch.half().to(DEVICE)
+                else:
+                    wav16k = wav16k.to(DEVICE)
+                    zero_wav_torch = zero_wav_torch.to(DEVICE)
+                wav16k = torch.cat([wav16k, zero_wav_torch])
+                ssl_content = self.ssl_model.model(wav16k.unsqueeze(0))[
+                    "last_hidden_state"
+                ].transpose(
+                    1, 2
+                )  # .float()
+                codes = self.vq_model.extract_latent(ssl_content)
+                prompt_semantic = codes[0, 0]
+                prompt = prompt_semantic.unsqueeze(0).to(DEVICE)
+
 
         for text in texts:
             # 解决输入目标文本的空行导致报错的问题
@@ -345,6 +350,7 @@ class GSVModel:
             pred_semantic = pred_semantic[:, -idx:].unsqueeze(
                 0
             )  # .unsqueeze(0)#mq要多unsqueeze一次
+            # todo. 继续拆解，怎么实现不带prompt，即ref_free，最终实现前置不用指定一个ref_info
             refer = self.get_spec(self.hps, ref_wav_path)  # .to(DEVICE)
             if self.is_half:
                 refer = refer.half().to(DEVICE)
@@ -374,14 +380,21 @@ class GSVModel:
                 top_k=1, top_p=0.8, temperature=0.8,
                 ref_free: bool = False, no_cut: bool = False):
         # Synthesize audio
-        synthesis_result = self.get_tts_wav(ref_wav_path=ref_info.audio_fp,
-                                            prompt_text=ref_info.text,
-                                            prompt_language=LANG_MAP[ref_info.lang],
-                                            text=target_text,
-                                            text_language=LANG_MAP[target_lang],
-                                            top_k=top_k, top_p=top_p, temperature=temperature,
-                                            ref_free=ref_free,
-                                            no_cut=no_cut)
+        if ref_free:
+            synthesis_result = self.get_tts_wav(text=target_text,
+                                                text_language=LANG_MAP[target_lang],
+                                                top_k=top_k, top_p=top_p, temperature=temperature,
+                                                ref_free=ref_free,
+                                                no_cut=no_cut)
+        else:
+            synthesis_result = self.get_tts_wav(ref_wav_path=ref_info.audio_fp,
+                                                prompt_text=ref_info.text,
+                                                prompt_language=LANG_MAP[ref_info.lang],
+                                                text=target_text,
+                                                text_language=LANG_MAP[target_lang],
+                                                top_k=top_k, top_p=top_p, temperature=temperature,
+                                                ref_free=ref_free,
+                                                no_cut=no_cut)
 
         result_list = list(synthesis_result)
 

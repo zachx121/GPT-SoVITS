@@ -332,7 +332,8 @@ if __name__ == '__main__':
     os.makedirs(TMP_DIR, exist_ok=True)
     os.makedirs(SoVITS_weight_root, exist_ok=True)
     os.makedirs(GPT_weight_root, exist_ok=True)
-    shutil.rmtree(os.path.join(EXP_ROOT_DIR, EXP_NAME))
+    if os.path.exists(os.path.join(EXP_ROOT_DIR, EXP_NAME)):
+        shutil.rmtree(os.path.join(EXP_ROOT_DIR, EXP_NAME))
 
     step_slice()
     step_denoise()
