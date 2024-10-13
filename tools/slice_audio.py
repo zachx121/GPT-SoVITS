@@ -5,15 +5,25 @@ from scipy.io import wavfile
 # sys.path.append(parent_directory)
 from tools.my_utils import load_audio
 from slicer2 import Slicer
+from subprocess import getstatusoutput
 
 def slice(inp,opt_root,threshold,min_length,min_interval,hop_size,max_sil_kept,_max,alpha,i_part,all_part):
     os.makedirs(opt_root,exist_ok=True)
     if os.path.isfile(inp):
         input=[inp]
     elif os.path.isdir(inp):
+        for name in sorted(list(os.listdir(inp))):
+            if any(name.endswith(i) for i in ['m4a', 'mp3', 'mp4']):
+                inp = "/root/GPT-SoVITS/voice_sample/ChatTTS_Voice_Clone_4_222rb2j"
+                fp = os.path.join(inp, name)
+                new_fp = os.path.join(inp, os.path.splitext(name)[0]+".wav")
+                cmd = f"ffmpeg -y -i {fp} {new_fp}"
+                s, _ = getstatusoutput(cmd)
+                assert s == 0, "ffmpeg转换格式时错误"
         input=[os.path.join(inp, name) for name in sorted(list(os.listdir(inp))) if name.endswith(".wav")]
     else:
         return "输入路径存在但既不是文件也不是文件夹"
+    assert len(input) > 0
     print(">>> All input as follow:\n%s" % '\n'.join(input))
     slicer = Slicer(
         sr=32000,  # 长音频采样率
