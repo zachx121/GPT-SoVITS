@@ -45,6 +45,7 @@ logging.basicConfig(format='[%(asctime)s-%(levelname)s-CLIENT]: %(message)s',
                     level=logging.INFO)
 from GSV_model import GSVModel,ReferenceInfo
 import multiprocessing as mp
+import utils_audio
 
 app = Flask(__name__, static_folder="./static_folder", static_url_path="")
 LANG_MAP = {"zh_cn": "ZH", "en_us": "EN"}
@@ -55,6 +56,14 @@ SOVITS_DIR = os.path.abspath(os.path.expanduser("./SoVITS_weights/"))
 logging.info(f"VOICE_SAMPLE_DIR: {VOICE_SAMPLE_DIR}")
 logging.info(f"GPT_DIR: {GPT_DIR}")
 logging.info(f"SOVITS_DIR: {SOVITS_DIR}")
+
+
+def get_sovits_fp(sid):
+    return os.path.join(SOVITS_DIR, sid, sid + ".latest.pth")
+
+
+def get_gpt_fp(sid):
+    return os.path.join(GPT_DIR, sid, sid + ".latest.ckpt")
 
 
 class Param:
@@ -102,8 +111,8 @@ class Param:
 
 
 def model_process(sid, q_inp, q_out, event):
-    M = GSVModel(sovits_model_fp=os.path.join(SOVITS_DIR, sid, sid + ".latest.pth"),
-                 gpt_model_fp=os.path.join(GPT_DIR, sid, sid + ".latest.ckpt"),
+    M = GSVModel(sovits_model_fp=get_sovits_fp(sid),
+                 gpt_model_fp=get_gpt_fp(sid),
                  speaker=sid)
     event.set()
     while True:
@@ -169,6 +178,11 @@ def load_model():
     if get_free_gpu_mem()[0] <= 2800 * (sid_num+1):
         res['status'] = 1
         res['msg'] = 'GPU OOM'
+        return json.dumps(res)
+
+    if not (os.path.exists(get_sovits_fp(sid)) and os.path.exists(get_gpt_fp(sid))):
+        res['status'] = 1
+        res['msg'] = f"model of '{sid}' is not found. call `download_model` or `is_model_available`"
         return json.dumps(res)
 
     # 开启N个子进程加载模型并等待Queue里的数据来处理请求
@@ -320,6 +334,7 @@ def train_model():
     speaker = info['speaker']
     lang = info['lang']
     data_urls = info['data_urls']
+    post2oss = "1"
     data_dir = os.path.join(VOICE_SAMPLE_DIR, speaker)
     if os.path.exists(data_dir):
         shutil.rmtree(data_dir)
@@ -341,7 +356,7 @@ def train_model():
     logging.info(f">>> Start Model Training.")
     # nohup python GPT_SoVITS/GSV_train.py zh_cn ChatTTS_Voice_Clone_4_222rb2j voice_sample/ChatTTS_Voice_Clone_4_222rb2j > ChatTTS_Voice_Clone_4_222rb2j.train 2>&1 &
     # python GPT_SoVITS/GSV_train.py zh_cn test_silang1636 voice_sample/test_silang1636 > test_silang1636.train
-    cmd = f"nohup python GPT_SoVITS/GSV_train.py {lang} {speaker} {data_dir} > {speaker}.train 2>&1 &"
+    cmd = f"nohup python GPT_SoVITS/GSV_train.py {lang} {speaker} {data_dir} {post2oss} > {speaker}.train 2>&1 &"
     logging.info(f"    cmd is {cmd}")
     status, output = getstatusoutput(cmd)
     if status != 0:
@@ -374,13 +389,11 @@ def check_training_status():
 @app.route("/model_status", methods=['POST'])
 def model_status():
     # 检查本服务加载了那些speaker模型
-    res = {}
+    res = []
     for k, v in M_dict.items():
         p_list = v['process_list']
-        if all([p.is_alive() for p in p_list]):
-            res[k] = len(p_list)
-        else:
-            res[k] = -1
+        size = len(p_list) if all([p.is_alive() for p in p_list]) else -1
+        res.append({"model_name": k, "model_num": size})
 
     logging.debug(str(res))
     res = json.dumps({"status": 0,
@@ -388,7 +401,28 @@ def model_status():
                       "result": res})
     return res, 200
 
-@DeprecationWarning
+
+@app.route("/download_model", methods=['POST'])
+def download_model():
+    info = request.get_json()
+    sid_list = info['speaker_list']
+    res = []
+    for sid in sid_list:
+        try:
+            utils_audio.download_from_qiniu(sid+"_sovits", get_sovits_fp(sid))
+            utils_audio.download_from_qiniu(sid+"_gpt", get_gpt_fp(sid))
+            res.append({"model_name": sid, "download_success": True})
+        except Exception as e:
+            logging.error(f"error when download '{sid}': {repr(e.message)}")
+            res.append({"model_name": sid, "download_success": False})
+
+    res = json.dumps({"status": 0,
+                      "msg": "",
+                      "result": res})
+    return res, 200
+
+
+# OSS下载完模型后，要用这个检查是否下载成功
 @app.route("/is_model_available", methods=['POST'])
 def is_model_available():
     """
@@ -398,11 +432,11 @@ def is_model_available():
     """
     info = request.get_json()
     speaker_list = info['speaker_list']
-    status = {}
+    status = []
     for s in speaker_list:
-        cond1 = os.path.exists(os.path.join(SOVITS_DIR, s, s+".latest.pth"))
-        cond2 = os.path.exists(os.path.join(GPT_DIR, s, s+".latest.ckpt"))
-        status[s] = cond1 and cond2
+        cond1 = os.path.exists(get_sovits_fp(s))
+        cond2 = os.path.exists(get_gpt_fp(s))
+        status.append({"model_name": s, "is_available": cond1 and cond2})
     return json.dumps(status), 200
 
 

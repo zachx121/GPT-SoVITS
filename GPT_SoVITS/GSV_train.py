@@ -4,6 +4,7 @@ import shutil
 import sys
 import json
 import yaml
+import utils_audio
 from subprocess import Popen,getstatusoutput
 logging.basicConfig(format='[%(asctime)s-%(levelname)s-%(funcName)s]: %(message)s',
                     datefmt="%Y-%m-%d %H:%M:%S",
@@ -308,14 +309,15 @@ def step_train_gpt(total_epoch=15):
 
 if __name__ == '__main__':
     # python GPT_SoVITS/GSV_train.py ZH XiaoLin ~/AudioProject/voice_sample/XiaoLinShuo
-    if len(sys.argv) == 4:
+    if len(sys.argv) == 5:
         LANG = sys.argv[1]
         _lang_dict = {"zh_cn": "ZH", "en_us": "EN"}
         LANG = _lang_dict.get(LANG, "ZH")
         EXP_NAME = sys.argv[2]
         INPUT_DIR = sys.argv[3]
+        POST_TO_OSS = sys.argv[4]
     else:
-        logging.error(f">>> sys.argv not enough (<LANG> <EXP_NAME> <INPUT_DIR>). `{' '.join(sys.argv)}`")
+        logging.error(f">>> sys.argv not enough (<LANG> <EXP_NAME> <INPUT_DIR> <POST_TO_OSS>). `{' '.join(sys.argv)}`")
         sys.exit(1)
 
     IS_HALF = False
@@ -343,10 +345,16 @@ if __name__ == '__main__':
     step_train_gpt()
 
     # todo 模型目录xx_root应该按EXPNAME进行区分？
-    latest_pth = get_latest_fp(SoVITS_weight_root)
-    os.rename(os.path.join(SoVITS_weight_root, latest_pth), os.path.join(SoVITS_weight_root, EXP_NAME+".latest.pth"))
-    latest_ckpt = get_latest_fp(GPT_weight_root)
-    os.rename(os.path.join(GPT_weight_root, latest_ckpt), os.path.join(GPT_weight_root, EXP_NAME + ".latest.ckpt"))
+    sovits_fp = os.path.join(SoVITS_weight_root, EXP_NAME + ".latest.pth")
+    gpt_fp = os.path.join(GPT_weight_root, EXP_NAME + ".latest.ckpt")
+    os.rename(os.path.join(SoVITS_weight_root, get_latest_fp(SoVITS_weight_root)), sovits_fp)
+    os.rename(os.path.join(GPT_weight_root, get_latest_fp(GPT_weight_root)), gpt_fp)
+
+    if POST_TO_OSS == "1":
+        logging.info(">> Uploading sovits model to qiniu.")
+        utils_audio.post2qiniu(sovits_fp, f"{EXP_NAME}_sovits")
+        logging.info(">> Uploading gpt model to qiniu.")
+        utils_audio.post2qiniu(gpt_fp, f"{EXP_NAME}_gpt")
 
     # Show models path
     models_fp = []
