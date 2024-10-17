@@ -165,6 +165,7 @@ def load_model():
     info = request.get_json()
     sid = info['speaker']
     sid_num = info['speaker_num']
+    download_overwrite = info.get("download_overwrite", "1")
     logging.info(info)
     if sid in M_dict:
         # 直接全部unload重新加载，减少逻辑
@@ -180,10 +181,15 @@ def load_model():
         res['msg'] = 'GPU OOM'
         return json.dumps(res)
 
-    if not (os.path.exists(get_sovits_fp(sid)) and os.path.exists(get_gpt_fp(sid))):
-        res['status'] = 1
-        res['msg'] = f"model of '{sid}' is not found. call `download_model` or `is_model_available`"
-        return json.dumps(res)
+    if download_overwrite == "1" or (not (os.path.exists(get_sovits_fp(sid)) and os.path.exists(get_gpt_fp(sid)))):
+        try:
+            utils_audio.download_from_qiniu(sid+"_sovits", get_sovits_fp(sid))
+            utils_audio.download_from_qiniu(sid+"_gpt", get_gpt_fp(sid))
+        except Exception as e:
+            logging.error(f"error when download '{sid}': {repr(e.message)}")
+            res['status'] = 1
+            res['msg'] = f"model of '{sid}' is not found and download failed"
+            return json.dumps(res)
 
     # 开启N个子进程加载模型并等待Queue里的数据来处理请求
     q_inp = mp.Queue()
