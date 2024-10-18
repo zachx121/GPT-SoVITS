@@ -382,9 +382,9 @@ def train_model():
 @app.route("/check_training_status", methods=['POST'])
 def check_training_status():
     # 检查本机执行了几个模型训练
-    cmd = "ps -ef | grep 'nohup python GPT_SoVITS/GSV_train.py' | grep -v 'grep'"
+    cmd = "ps -ef | grep 'python GPT_SoVITS/GSV_train.py' | grep -v 'grep'"
     status, output = getstatusoutput(cmd)
-    assert status != 0, f"cmd status is not zeros. cmd:'{cmd}'"
+    assert status == 0, f"cmd execution failed. cmd:'{cmd}' output:'{output}'"
     sid_list = [re.split("\s+", i)[10] for i in output.split("\n")]
     res = json.dumps({"status": 0,
                       "msg": "success",
