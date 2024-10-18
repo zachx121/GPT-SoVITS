@@ -351,10 +351,12 @@ if __name__ == '__main__':
     os.rename(os.path.join(GPT_weight_root, get_latest_fp(GPT_weight_root)), gpt_fp)
 
     if POST_TO_OSS == "1":
-        logging.info(">> Uploading sovits model to qiniu.")
-        utils_audio.post2qiniu(sovits_fp, f"{EXP_NAME}_sovits")
-        logging.info(">> Uploading gpt model to qiniu.")
-        utils_audio.post2qiniu(gpt_fp, f"{EXP_NAME}_gpt")
+        logging.info(">>> Uploading sovits model to qiniu.")
+        url = utils_audio.post2qiniu(sovits_fp, f"{EXP_NAME}_sovits")
+        logging.info(f">>> url as: '{url}'")
+        logging.info(">>> Uploading gpt model to qiniu.")
+        url = utils_audio.post2qiniu(gpt_fp, f"{EXP_NAME}_gpt")
+        logging.info(f">>> url as: '{url}'")
 
     # Show models path
     models_fp = []
@@ -365,5 +367,5 @@ if __name__ == '__main__':
         if EXP_NAME in i:
             models_fp.append(os.path.abspath(os.path.join(GPT_weight_root, i)))
     logging.info(">>> Models path:\n%s" % "\n".join(models_fp))
-
+    logging.info("<<< Training finished.")
 

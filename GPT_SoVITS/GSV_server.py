@@ -384,11 +384,17 @@ def check_training_status():
     # 检查本机执行了几个模型训练
     cmd = "ps -ef | grep 'python GPT_SoVITS/GSV_train.py' | grep -v 'grep'"
     status, output = getstatusoutput(cmd)
-    assert status == 0, f"cmd execution failed. cmd:'{cmd}' output:'{output}'"
-    sid_list = [re.split("\s+", i)[10] for i in output.split("\n")]
-    res = json.dumps({"status": 0,
-                      "msg": "success",
-                      "result": json.dumps(sid_list)})
+    # 注意没有训练进程时，status是1，output是空串
+    if output == "":
+        res = json.dumps({"status": 0,
+                          "msg": "success",
+                          "result": json.dumps([])})
+    else:
+        assert status == 0, f"cmd execution failed. cmd:'{cmd}' output:'{output}'"
+        sid_list = [re.split("\s+", i)[10] for i in output.split("\n")]
+        res = json.dumps({"status": 0,
+                          "msg": "success",
+                          "result": json.dumps(sid_list)})
     return res
 
 

@@ -1,3 +1,5 @@
+import sys
+
 import requests
 import json
 import numpy as np
@@ -10,46 +12,68 @@ url = "https://u212392-8449-c474cb97.beijinga.seetacloud.com/"
 headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
 
 
-sid = 'test_silang1636'
-sid = 'ChatTTS_Voice_Clone_4_222rb2j'
+def train(sid):
+    rsp = requests.post(url + "train_model",
+                        data=json.dumps({"speaker": sid,
+                                         "lang": "zh_cn",
+                                         "data_urls": ['https://public.yisounda.com/tmp.wav?e=1729227642&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:sb8W5U6yEvfMd6wW7q2UC7wI-8w=']}),
+                        headers=headers)
+    print(rsp.status_code, rsp.json())
+    pass
 
-
-def load():
+def load(sid):
     rsp = requests.post(url + "load_model",
                         data=json.dumps({"speaker": sid, "speaker_num": 2}),
                         headers=headers)
     print(rsp.status_code, rsp.json())
 
-def unload():
+def unload(sid):
     rsp = requests.post(url + "unload_model",
                         data=json.dumps({"speaker": sid}),
                         headers=headers)
     print(rsp.status_code, rsp.json())
 
-def add_ref():
+def add_ref(sid):
     # 只传一个sid，表示自动用训练集的第一个音频作为reference
     rsp = requests.post(url + "add_reference",
                         data=json.dumps({"speaker": sid}),
                         headers=headers)
     print(rsp.status_code, rsp.json())
 
-load()
+def model_status(sid):
+    rsp = requests.post(url + "model_status", headers=headers)
+    print(rsp.status_code, rsp.json())
 
-rsp = requests.post(url + "model_status", headers=headers)
-print(rsp.status_code, rsp.json())
-# # 注意 lang 和 text一定要对齐，不能用text是中文文本然后lang又指定英文，100%泄漏reference音频或者乱读
-rsp = requests.post(url + "inference",
-                    data=json.dumps({"trace_id": "debug_GSV_client", "speaker": sid,
-                                     "text": "Hello, I'm not sure I understand your description",
-                                     "lang": "en_us",
-                                     # "text": "你好，我正在尝试解答这个问题",
-                                     #  "lang": "zh_cn",
-                                     "use_ref": True}),
-                    headers=headers)
-print(rsp.status_code)
-if rsp.status_code == 200:
-    rsp_audio_arr = np.frombuffer(base64.b64decode(rsp.json()['result']['audio_buffer_int16']), dtype=np.int16)
-    scipy.io.wavfile.write(f"./rsp_{time.time():.0f}.wav", 16000, rsp_audio_arr)
+def inference(sid,
+              lang="en_us",
+              text="Hello, I'm not sure I understand your description"):
+    # # 注意 lang 和 text一定要对齐，不能用text是中文文本然后lang又指定英文，100%泄漏reference音频或者乱读
+    rsp = requests.post(url + "inference",
+                        data=json.dumps({"trace_id": "debug_GSV_client", "speaker": sid,
+                                         "text": text,
+                                         "lang": lang,
+                                         # "text": "你好，我正在尝试解答这个问题",
+                                         #  "lang": "zh_cn",
+                                         "use_ref": True}),
+                        headers=headers)
+    print(rsp.status_code)
+    if rsp.status_code == 200:
+        rsp_audio_arr = np.frombuffer(base64.b64decode(rsp.json()['result']['audio_buffer_int16']), dtype=np.int16)
+        scipy.io.wavfile.write(f"./rsp_{time.time():.0f}.wav", 16000, rsp_audio_arr)
+
+
+sid = 'test_silang1636'
+# sid = 'ChatTTS_Voice_Clone_4_222rb2j'
+train(sid)
+for i in range(10):
+    time.sleep(5)
+    rsp = requests.post(url + "check_training_status", data=json.dumps({}), headers=headers)
+    print(rsp.status_code, rsp.json())
+
+# sys.exit(0)
+load(sid)
+model_status(sid)
+inference(sid)
 
 # rsp = requests.post(url + "is_model_available",
 #                     data=json.dumps({"speaker_list": ["test_silang1636", "ChatTTS_Voice_Clone_4_222rb2j", "test_silang4"]}),
