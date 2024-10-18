@@ -191,6 +191,12 @@ def load_model():
             res['msg'] = f"model of '{sid}' is not found and download failed"
             return json.dumps(res)
 
+    ref_audio_fp = os.path.join(VOICE_SAMPLE_DIR, sid, f'ref_audio_{D_REF_SUFFIX}.wav')
+    ref_text_fp = os.path.join(VOICE_SAMPLE_DIR, sid, f'ref_text_{D_REF_SUFFIX}.txt')
+    if not (os.path.exists(ref_audio_fp) and os.path.exists(ref_text_fp)):
+        logging.info(">>> reference is not ready, init a default one from training data.")
+        add_default_ref(sid)
+
     # 开启N个子进程加载模型并等待Queue里的数据来处理请求
     q_inp = mp.Queue()
     q_out = mp.Queue()
@@ -231,6 +237,34 @@ def unload_model():
            "msg": "Model Unloaded",
            "result": ""}
     return json.dumps(res)
+
+
+def add_default_ref(sid):
+    asr_fp = os.path.join(VOICE_SAMPLE_DIR, sid, "asr", "denoised.list")
+    suffix = D_REF_SUFFIX
+    os.makedirs(os.path.join(VOICE_SAMPLE_DIR, sid), exist_ok=True)
+    audio_fp = os.path.join(VOICE_SAMPLE_DIR, sid, f'ref_audio_{suffix}.wav')
+    text_fp = os.path.join(VOICE_SAMPLE_DIR, sid, f'ref_text_{suffix}.txt')
+
+    assert os.path.exists(asr_fp)
+    with open(asr_fp, "r", encoding='utf-8') as fr:
+        # 示例如下：
+        # voice_sample/test_silang1636/denoised/ref_audio_default.wav_0000000000_0000127680.wav|denoised|ZH|真是脚带帽在头顶靴上下不？
+        line = fr.readline().strip()
+
+    infos = line.split("|")
+    _audio_fp = infos[0]
+    _lang = infos[2]
+    _lang_map = {v: k for k, v in LANG_MAP.items()}
+    _lang = _lang_map[_lang]
+    _text = infos[3]
+
+    cmd1 = f"cp {_audio_fp} {audio_fp}"
+    s1, _ = getstatusoutput(cmd1)
+    assert s1 == 0
+    cmd2 = f"echo '{_lang}|{_text}' > {text_fp}"
+    s2, _ = getstatusoutput(cmd2)
+    assert s2 == 0
 
 
 @app.route("/add_reference", methods=['POST'])
@@ -278,28 +312,7 @@ def add_reference():
                           "msg": "Reference added.",
                           "result": ""})
     else:
-        logging.info(f">>> will use **AUTOMATIC** audio&text with suffix: '{suffix}'")
-        asr_fp = os.path.join(VOICE_SAMPLE_DIR, sid, "asr", "denoised.list")
-        assert os.path.exists(asr_fp)
-        with open(asr_fp, "r", encoding='utf-8') as fr:
-            # 示例如下：
-            # voice_sample/test_silang1636/denoised/ref_audio_default.wav_0000000000_0000127680.wav|denoised|ZH|真是脚带帽在头顶靴上下不？
-            line = fr.readline().strip()
-
-        infos = line.split("|")
-        _audio_fp = infos[0]
-        _lang = infos[2]
-        _lang_map = {v:k for k,v in LANG_MAP.items()}
-        _lang = _lang_map[_lang]
-        _text = infos[3]
-
-        cmd1 = f"cp {_audio_fp} {audio_fp}"
-        s1, _ = getstatusoutput(cmd1)
-        assert s1 == 0
-        cmd2 = f"echo '{_lang}|{_text}' > {text_fp}"
-        s2, _ = getstatusoutput(cmd2)
-        assert s2 == 0
-
+        add_default_ref(sid)
         res = json.dumps({"status": 0,
                           "msg": "Automatic Reference added.",
                           "result": ""})
