@@ -1,4 +1,3 @@
-import pyaudio
 import scipy
 import numpy as np
 import audioop
@@ -11,6 +10,8 @@ CLEAR_GAP = 1  # 每隔多久没有收到新数据就认为要清空语音buffer
 BYTES_PER_SEC = SAMPLE_RATE * SAMPLE_WIDTH * CHANNELS
 
 def play_audio_buffer(audio_buffer, sr, channels=1):
+    # pyaudio在有些环境出现兼容问题，就不在外部统一import了
+    import pyaudio
     p = pyaudio.PyAudio()
     # 打开一个音频流
     stream = p.open(format=pyaudio.paFloat32,
@@ -49,6 +50,7 @@ def cal_rms(inp_buffer, delta=0.5, sr=SAMPLE_RATE, sw=SAMPLE_WIDTH, c=CHANNELS):
 
 # wave写的wav文件dtype应该是用np.int16来解析
 def play_audio_buffer_with_volume(audio_buffer, sr, channels=1, dtype=np.int16):
+    import pyaudio
     p = pyaudio.PyAudio()
 
     # 打开一个音频流
