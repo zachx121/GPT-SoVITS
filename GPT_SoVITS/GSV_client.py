@@ -69,7 +69,7 @@ for i in range(10):
     time.sleep(5)
     rsp = requests.post(url + "check_training_status", data=json.dumps({}), headers=headers)
     print(rsp.status_code, rsp.json())
-
+# add_ref(sid)
 # sys.exit(0)
 load(sid)
 model_status(sid)
