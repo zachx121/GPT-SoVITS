@@ -99,7 +99,7 @@ def model_process(sid, q_inp, q_out, event):
         tlist.append(int(time.time()*1000))
         q_out.put(rsp)
         tlist.append(int(time.time()*1000))
-        print(f"tlist: {tlist}")
+        print(f"model time tlist: " + ",".join([f'{b - a}ms' for a, b in zip(tlist[:-1], tlist[1:])]))
 
     # 结束时清理掉模型和显存
     del M
@@ -304,7 +304,7 @@ def inference():
     tlist.append(int(time.time()*1000))
     result = M_dict[p.speaker]["q_out"].get()
     tlist.append(int(time.time()*1000))
-    print(f"tlist: {tlist}")
+    print(f"server api tlist: " + ",".join([f'{b - a}ms' for a, b in zip(tlist[:-1], tlist[1:])]))
     return result, 200
 
 
