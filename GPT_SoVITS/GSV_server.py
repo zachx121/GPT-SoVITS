@@ -75,6 +75,7 @@ def model_process(sid, q_inp, q_out, event):
         tlist.append(int(time.time()*1000))
         if p is None:
             break
+        tlist.append(int(time.time() * 1000))
         wav_sr, wav_arr_int16 = M.predict(target_text=p.text,
                                           target_lang=p.tgt_lang,
                                           ref_info=p.ref_info,
