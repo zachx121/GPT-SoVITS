@@ -70,38 +70,40 @@ def model_process(sid, q_inp, q_out, event):
                  speaker=sid)
     event.set()
     while True:
-        p:InferenceParam = q_inp.get()
-        tlist = []
-        tlist.append(int(time.time()*1000))
-        if p is None:
-            break
-        tlist.append(int(time.time() * 1000))
-        wav_sr, wav_arr_int16 = M.predict(target_text=p.text,
-                                          target_lang=p.tgt_lang,
-                                          ref_info=p.ref_info,
-                                          top_k=1, top_p=0, temperature=0,
-                                          ref_free=p.ref_free, no_cut=p.nocut)
-        tlist.append(int(time.time()*1000))
-        wav_arr_float32 = wav_arr_int16.astype(np.float32) / 32768.0
-        wav_arr_float32_16khz = librosa.resample(wav_arr_float32, orig_sr=wav_sr, target_sr=16000)
-        wav_arr_int16 = (np.clip(wav_arr_float32_16khz, -1.0, 1.0) * 32767).astype(np.int16)
-        tlist.append(int(time.time()*1000))
-        rsp = {"trace_id": p.trace_id,
-               # "audio_buffer": base64.b64encode(wav_arr.tobytes()).decode(),
-               "audio_buffer_int16": base64.b64encode(wav_arr_int16.tobytes()).decode(),
-               "sample_rate": 16000,
-               "status": 0,
-               "msg": "success."}
-        rsp = json.dumps({"status": 0,
-                          "msg": "",
-                          "result": rsp})
-        tlist.append(int(time.time()*1000))
-        sf.write(f"output_{time.time():.0f}.wav", wav_arr_int16, wav_sr)
-        tlist.append(int(time.time()*1000))
-        q_out.put(rsp)
-        tlist.append(int(time.time()*1000))
-        print(f"model time tlist: " + ",".join([f'{b - a}ms' for a, b in zip(tlist[:-1], tlist[1:])]))
-
+        try:
+            p:InferenceParam = q_inp.get()
+            tlist = []
+            tlist.append(int(time.time()*1000))
+            if p is None:
+                break
+            tlist.append(int(time.time() * 1000))
+            wav_sr, wav_arr_int16 = M.predict(target_text=p.text,
+                                              target_lang=p.tgt_lang,
+                                              ref_info=p.ref_info,
+                                              top_k=1, top_p=0, temperature=0,
+                                              ref_free=p.ref_free, no_cut=p.nocut)
+            tlist.append(int(time.time()*1000))
+            wav_arr_float32 = wav_arr_int16.astype(np.float32) / 32768.0
+            wav_arr_float32_16khz = librosa.resample(wav_arr_float32, orig_sr=wav_sr, target_sr=16000)
+            wav_arr_int16 = (np.clip(wav_arr_float32_16khz, -1.0, 1.0) * 32767).astype(np.int16)
+            tlist.append(int(time.time()*1000))
+            rsp = {"trace_id": p.trace_id,
+                   # "audio_buffer": base64.b64encode(wav_arr.tobytes()).decode(),
+                   "audio_buffer_int16": base64.b64encode(wav_arr_int16.tobytes()).decode(),
+                   "sample_rate": 16000,
+                   "status": 0,
+                   "msg": "success."}
+            rsp = json.dumps({"status": 0,
+                              "msg": "",
+                              "result": rsp})
+            tlist.append(int(time.time()*1000))
+            sf.write(f"output_{time.time():.0f}.wav", wav_arr_int16, wav_sr)
+            tlist.append(int(time.time()*1000))
+            q_out.put(rsp)
+            tlist.append(int(time.time()*1000))
+            print(f"model time tlist: " + ",".join([f'{b - a}ms' for a, b in zip(tlist[:-1], tlist[1:])]))
+        except Exception as e:
+            logging.error(f">>> Error when model.predict. e: {repr(e.message)}")
     # 结束时清理掉模型和显存
     del M
     import gc
