@@ -97,7 +97,7 @@ def model_process(sid, q_inp, q_out, event):
                               "msg": "",
                               "result": rsp})
             tlist.append(int(time.time()*1000))
-            sf.write(f"output_{time.time():.0f}.wav", wav_arr_int16, wav_sr)
+            # sf.write(f"output_{time.time():.0f}.wav", wav_arr_int16, wav_sr)
             tlist.append(int(time.time()*1000))
             q_out.put(rsp)
             tlist.append(int(time.time()*1000))
