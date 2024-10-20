@@ -71,6 +71,8 @@ def model_process(sid, q_inp, q_out, event):
     event.set()
     while True:
         p:InferenceParam = q_inp.get()
+        tlist = []
+        tlist.append(int(time.time()*1000))
         if p is None:
             break
         wav_sr, wav_arr_int16 = M.predict(target_text=p.text,
@@ -78,9 +80,11 @@ def model_process(sid, q_inp, q_out, event):
                                           ref_info=p.ref_info,
                                           top_k=1, top_p=0, temperature=0,
                                           ref_free=p.ref_free, no_cut=p.nocut)
+        tlist.append(int(time.time()*1000))
         wav_arr_float32 = wav_arr_int16.astype(np.float32) / 32768.0
         wav_arr_float32_16khz = librosa.resample(wav_arr_float32, orig_sr=wav_sr, target_sr=16000)
         wav_arr_int16 = (np.clip(wav_arr_float32_16khz, -1.0, 1.0) * 32767).astype(np.int16)
+        tlist.append(int(time.time()*1000))
         rsp = {"trace_id": p.trace_id,
                # "audio_buffer": base64.b64encode(wav_arr.tobytes()).decode(),
                "audio_buffer_int16": base64.b64encode(wav_arr_int16.tobytes()).decode(),
@@ -90,8 +94,12 @@ def model_process(sid, q_inp, q_out, event):
         rsp = json.dumps({"status": 0,
                           "msg": "",
                           "result": rsp})
+        tlist.append(int(time.time()*1000))
         sf.write(f"output_{time.time():.0f}.wav", wav_arr_int16, wav_sr)
+        tlist.append(int(time.time()*1000))
         q_out.put(rsp)
+        tlist.append(int(time.time()*1000))
+        print(f"tlist: {tlist}")
 
     # 结束时清理掉模型和显存
     del M
@@ -284,13 +292,19 @@ def inference():
     if len(M_dict) == 0:
         return "No available Model", 400
 
+    tlist = []
+    tlist.append(int(time.time()*1000))
     info = request.get_json()
-    logging.warning(f"inference {info}")
+    logging.warning(f"inference at {time.time():.03f}s info:{info}")
     p = InferenceParam(info)
     if p.speaker not in M_dict:
         return f"inference使用的角色音({p.speaker})未被加载。已加载角色音: {M_dict.keys()}", 400
+    tlist.append(int(time.time()*1000))
     M_dict[p.speaker]["q_inp"].put(p)
+    tlist.append(int(time.time()*1000))
     result = M_dict[p.speaker]["q_out"].get()
+    tlist.append(int(time.time()*1000))
+    print(f"tlist: {tlist}")
     return result, 200
 
 
