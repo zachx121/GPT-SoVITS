@@ -33,6 +33,7 @@ import time
 import numpy as np
 import os
 os.environ['TQDM_DISABLE'] = 'True'
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 import logging
 import base64
 import json
@@ -47,7 +48,7 @@ logging.basicConfig(format='[%(asctime)s-%(levelname)s-CLIENT]: %(message)s',
 from GSV_model import GSVModel,ReferenceInfo
 import multiprocessing as mp
 import utils_audio
-
+mp.set_start_method("spawn")
 app = Flask(__name__, static_folder="./static_folder", static_url_path="")
 LANG_MAP = {"zh_cn": "ZH", "en_us": "EN"}
 D_REF_SUFFIX = "default"
@@ -468,7 +469,6 @@ def is_model_available():
 
 if __name__ == '__main__':
     logging.info("Preparing")
-    mp.set_start_method("spawn")
     os.makedirs(VOICE_SAMPLE_DIR, exist_ok=True)
     os.makedirs(GPT_DIR, exist_ok=True)
     os.makedirs(SOVITS_DIR, exist_ok=True)
