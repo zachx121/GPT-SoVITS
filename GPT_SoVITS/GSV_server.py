@@ -46,15 +46,11 @@ logging.basicConfig(format='[%(asctime)s-%(levelname)s-CLIENT]: %(message)s',
                     datefmt="%Y-%m-%d %H:%M:%S",
                     level=logging.INFO)
 from GSV_model import GSVModel,ReferenceInfo
+from GSV_const import InferenceParam, LANG_MAP, D_REF_SUFFIX, VOICE_SAMPLE_DIR, GPT_DIR, SOVITS_DIR
 import multiprocessing as mp
 import utils_audio
 mp.set_start_method("spawn")
 app = Flask(__name__, static_folder="./static_folder", static_url_path="")
-LANG_MAP = {"zh_cn": "ZH", "en_us": "EN"}
-D_REF_SUFFIX = "default"
-VOICE_SAMPLE_DIR = os.path.abspath(os.path.expanduser("./voice_sample/"))
-GPT_DIR = os.path.abspath(os.path.expanduser("./GPT_weights/"))
-SOVITS_DIR = os.path.abspath(os.path.expanduser("./SoVITS_weights/"))
 logging.info(f"VOICE_SAMPLE_DIR: {VOICE_SAMPLE_DIR}")
 logging.info(f"GPT_DIR: {GPT_DIR}")
 logging.info(f"SOVITS_DIR: {SOVITS_DIR}")
@@ -68,57 +64,13 @@ def get_gpt_fp(sid):
     return os.path.join(GPT_DIR, sid, sid + ".latest.ckpt")
 
 
-class Param:
-    trace_id: str = None
-    speaker: str = None  # 角色音
-    text: str = None  # 要合成的文本
-    lang: str = None  # 合成音频的语言 (e.g. zh_cn/en_us)
-    use_ref: bool = True  # 推理时是否使用参考音频的情绪，目前还不能置为False必须是True
-    ref_suffix: str = D_REF_SUFFIX  # 当可提供多个参考音频时，指定参考音频的后缀
-    nocut: bool = True  # 是否不做切分
-
-    # 模型接收的语言参数名和通用的不一样，重新映射
-    @property
-    def tgt_lang(self):
-        # eng/cmn/eng/deu/fra/ita/spa
-        # {"JP": "all_ja", "ZH": "all_zh", "EN": "en", "ZH_EN": "zh", "JP_EN": "ja", "AUTO": "auto"}
-        # lang = self.lang if self.lang in ["JP", "ZH", "EN", "ZH_EN", "JP_EN"] else "AUTO"
-        lang = LANG_MAP.get(self.lang, "AUTO")
-        return lang
-
-    @property
-    def ref_info(self):
-        if self.ref_free:
-            return ReferenceInfo(audio_fp="", text="", lang="")
-        ref_dir = os.path.join(VOICE_SAMPLE_DIR, self.speaker)
-        # ~/tmp/ref_audio.wav
-        audio_fp = os.path.join(ref_dir, f'ref_audio_{self.ref_suffix}.wav')
-        # ~/tmp/ref_text.txt 里面必须是竖线分割的<语言>|<文本> e.g."ZH|语音的具体文本内容。"
-        text_fp = os.path.join(ref_dir, f'ref_text_{self.ref_suffix}.txt')
-        assert os.path.exists(audio_fp)
-        assert os.path.exists(text_fp)
-        with open(text_fp, 'r', encoding='utf - 8') as fr:
-            lang, text = fr.readlines()[0].split("|")
-        # lang, text = getstatusoutput(f"cat '{text_fp}'")[1].encode().split("|")
-        return ReferenceInfo(audio_fp=audio_fp, text=text, lang=lang)
-
-    @property
-    def ref_free(self):
-        return False if self.use_ref else True
-
-    def __init__(self, info_dict):
-        for key in self.__annotations__.keys():
-            if key in info_dict:
-                setattr(self, key, info_dict[key])
-
-
 def model_process(sid, q_inp, q_out, event):
     M = GSVModel(sovits_model_fp=get_sovits_fp(sid),
                  gpt_model_fp=get_gpt_fp(sid),
                  speaker=sid)
     event.set()
     while True:
-        p:Param = q_inp.get()
+        p:InferenceParam = q_inp.get()
         if p is None:
             break
         wav_sr, wav_arr_int16 = M.predict(target_text=p.text,
@@ -334,7 +286,7 @@ def inference():
 
     info = request.get_json()
     logging.warning(f"inference {info}")
-    p = Param(info)
+    p = InferenceParam(info)
     if p.speaker not in M_dict:
         return f"inference使用的角色音({p.speaker})未被加载。已加载角色音: {M_dict.keys()}", 400
     M_dict[p.speaker]["q_inp"].put(p)
