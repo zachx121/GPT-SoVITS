@@ -32,6 +32,7 @@ import torch
 import time
 import numpy as np
 import os
+os.environ['TQDM_DISABLE'] = 'True'
 import logging
 import base64
 import json
@@ -166,7 +167,7 @@ def load_model():
     sid = info['speaker']
     sid_num = info['speaker_num']
     download_overwrite = info.get("download_overwrite", "1")
-    logging.info(info)
+    logging.debug(f"load_model: {info}")
     if sid in M_dict:
         # 直接全部unload重新加载，减少逻辑
         # if sid_num == len(M_dict[sid]['process_list']):
@@ -331,7 +332,7 @@ def inference():
         return "No available Model", 400
 
     info = request.get_json()
-    logging.debug(info)
+    logging.warning(f"inference {info}")
     p = Param(info)
     if p.speaker not in M_dict:
         return f"inference使用的角色音({p.speaker})未被加载。已加载角色音: {M_dict.keys()}", 400
