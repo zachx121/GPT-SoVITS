@@ -49,7 +49,7 @@ from GSV_model import GSVModel,ReferenceInfo
 from GSV_const import InferenceParam, LANG_MAP, D_REF_SUFFIX, VOICE_SAMPLE_DIR, GPT_DIR, SOVITS_DIR
 import multiprocessing as mp
 import utils_audio
-mp.set_start_method("spawn")
+
 app = Flask(__name__, static_folder="./static_folder", static_url_path="")
 logging.info(f"VOICE_SAMPLE_DIR: {VOICE_SAMPLE_DIR}")
 logging.info(f"GPT_DIR: {GPT_DIR}")
@@ -434,6 +434,7 @@ def is_model_available():
 
 
 if __name__ == '__main__':
+    mp.set_start_method("spawn")
     logging.info("Preparing")
     os.makedirs(VOICE_SAMPLE_DIR, exist_ok=True)
     os.makedirs(GPT_DIR, exist_ok=True)
