@@ -82,7 +82,7 @@ def play_audio_buffer_with_volume(audio_buffer, sr, channels=1, dtype=np.int16):
     p.terminate()
 
 
-from qiniu import Auth, put_file, etag
+from qiniu import Auth, put_file, etag, BucketManager
 import qiniu.config
 import os
 class QiniuConst:
@@ -97,7 +97,7 @@ def post2qiniu(localfile, key):
 
     # >>> 上传
     q = Auth(QiniuConst.access_key, QiniuConst.secret_key)
-    token = q.upload_token(QiniuConst.bucket_name, key, 3600)  #生成上传 Token，可以指定过期时间等
+    token = q.upload_token(QiniuConst.bucket_name, key, 3600)  # 生成上传Token，可以指定token的过期时间等
     ret, info = put_file(token, key, localfile, version='v2')
     # print(info)
     assert ret['key'] == key
@@ -105,6 +105,14 @@ def post2qiniu(localfile, key):
     # print(f"wget -O res '{private_url}'")  # >>> 下载路径
     private_url = Auth(QiniuConst.access_key, QiniuConst.secret_key).private_download_url('%s/%s' % (QiniuConst.bucket_domain, key), expires=3600)
     return private_url
+
+
+def check_on_qiniu(key):
+    q = Auth(QiniuConst.access_key, QiniuConst.secret_key)
+    # 初始化BucketManager
+    bucket = BucketManager(q)
+    ret, eof, info = bucket.list(QiniuConst.bucket_name)
+    return key in [i['key'] for i in ret['items']]
 
 
 def download_from_qiniu(key, fp):

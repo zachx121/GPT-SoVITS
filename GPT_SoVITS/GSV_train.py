@@ -5,6 +5,7 @@ import sys
 import json
 import yaml
 import utils_audio
+from GSV_const import get_gpt_oss, get_sovits_oss
 from subprocess import Popen,getstatusoutput
 logging.basicConfig(format='[%(asctime)s-%(levelname)s-%(funcName)s]: %(message)s',
                     datefmt="%Y-%m-%d %H:%M:%S",
@@ -88,7 +89,7 @@ def step_asr(lang="ZH"):
 def step_apply_pretrains():
     logging.info(f">>> Apply Pretrains on '{ASR_FP}'... ")
     inp_text = ASR_FP
-    exp_name = EXP_NAME
+    exp_name = sid
     opt_dir = "%s/%s" % (EXP_ROOT_DIR, exp_name)
     inp_wav_dir = ""  # 直接使用denoised.list里的绝对路径
     gpu_numbers1a = "0-0"
@@ -219,12 +220,12 @@ def step_apply_pretrains():
         logging.info("1c skipped.")
     ps1abc = []
 
-    logging.info(f"Pretrain抽取特征完毕，可检查输出目录 {os.path.abspath(os.path.join('logs', EXP_NAME))}")
+    logging.info(f"Pretrain抽取特征完毕，可检查输出目录 {os.path.abspath(os.path.join('logs', sid))}")
 
 
 def step_train_sovits(total_epoch=8):
     batch_size = 18
-    exp_name = EXP_NAME
+    exp_name = sid
     text_low_lr_rate = 0.4
     if_save_latest = True
     if_save_every_weights = True
@@ -249,14 +250,14 @@ def step_train_sovits(total_epoch=8):
     data["train"]["if_save_every_weights"] = if_save_every_weights
     data["train"]["save_every_epoch"] = save_every_epoch
     data["train"]["gpu_numbers"] = gpu_numbers1Ba
-    data["data"]["exp_dir"] = data["s2_ckpt_dir"] = os.path.join(EXP_ROOT_DIR, EXP_NAME)
+    data["data"]["exp_dir"] = data["s2_ckpt_dir"] = os.path.join(EXP_ROOT_DIR, sid)
     data["save_weight_dir"] = SoVITS_weight_root
     data["name"] = exp_name
-    tmp_config_path = os.path.join(TMP_DIR, f"s2_{EXP_NAME}.json")
+    tmp_config_path = os.path.join(TMP_DIR, f"s2_{sid}.json")
     with open(tmp_config_path, "w") as f: f.write(json.dumps(data))
 
     # logs_s2用来存放Generator和Discriminator模型的
-    os.makedirs(os.path.join(EXP_ROOT_DIR, EXP_NAME, "logs_s2"), exist_ok=True)
+    os.makedirs(os.path.join(EXP_ROOT_DIR, sid, "logs_s2"), exist_ok=True)
     cmd = f'python GPT_SoVITS/s2_train.py --config "{tmp_config_path}"'
     logging.info(cmd)
     p_train_SoVITS = Popen(cmd, shell=True)
@@ -266,7 +267,7 @@ def step_train_sovits(total_epoch=8):
 
 def step_train_gpt(total_epoch=15):
     batch_size = 18
-    exp_name = EXP_NAME
+    exp_name = sid
     if_dpo = False
     if_save_latest = True
     if_save_every_weights = True
@@ -277,7 +278,7 @@ def step_train_gpt(total_epoch=15):
     with open("GPT_SoVITS/configs/s1longer.yaml") as f:
         data = f.read()
         data = yaml.load(data, Loader=yaml.FullLoader)
-    s1_dir = os.path.join(EXP_ROOT_DIR, EXP_NAME)
+    s1_dir = os.path.join(EXP_ROOT_DIR, sid)
     os.makedirs("%s/logs_s1" % (s1_dir), exist_ok=True)
     if (IS_HALF == False):
         data["train"]["precision"] = "32"
@@ -297,7 +298,7 @@ def step_train_gpt(total_epoch=15):
 
     os.environ["_CUDA_VISIBLE_DEVICES"] = gpu_numbers.replace("-", ",")
     os.environ["hz"] = "25hz"
-    tmp_config_path = os.path.join(TMP_DIR, f"s1_{EXP_NAME}.yaml")
+    tmp_config_path = os.path.join(TMP_DIR, f"s1_{sid}.yaml")
     with open(tmp_config_path, "w") as f: f.write(yaml.dump(data, default_flow_style=False))
     # cmd = '"%s" GPT_SoVITS/s1_train.py --config_file "%s" --train_semantic_path "%s/6-name2semantic.tsv" --train_phoneme_path "%s/2-name2text.txt" --output_dir "%s/logs_s1"'%(python_exec,tmp_config_path,s1_dir,s1_dir,s1_dir)
     cmd = f'python GPT_SoVITS/s1_train.py --config_file "{tmp_config_path}" '
@@ -313,7 +314,7 @@ if __name__ == '__main__':
         LANG = sys.argv[1]
         _lang_dict = {"zh_cn": "ZH", "en_us": "EN"}
         LANG = _lang_dict.get(LANG, "ZH")
-        EXP_NAME = sys.argv[2]
+        sid = sys.argv[2]
         INPUT_DIR = sys.argv[3]
         POST_TO_OSS = sys.argv[4]
     else:
@@ -327,15 +328,15 @@ if __name__ == '__main__':
     ASR_FP = os.path.join(ASR_DIR, os.path.basename(DENOISED_DIR)) + ".list"
     EXP_ROOT_DIR = "logs"  # 模型训练相关的特征数据路径
     TMP_DIR = os.path.join(EXP_ROOT_DIR, "TEMP_CONFIG")
-    SoVITS_weight_root = os.path.join("SoVITS_weights", EXP_NAME)  # 模型路径
-    GPT_weight_root = os.path.join("GPT_weights", EXP_NAME)  # 模型路径
+    SoVITS_weight_root = os.path.join("SoVITS_weights", sid)  # 模型路径
+    GPT_weight_root = os.path.join("GPT_weights", sid)  # 模型路径
 
-    logging.info(f">>> Start with ExpName='{EXP_NAME}', InputDir='{INPUT_DIR}', Language='{LANG}'")
+    logging.info(f">>> Start with ExpName='{sid}', InputDir='{INPUT_DIR}', Language='{LANG}'")
     os.makedirs(TMP_DIR, exist_ok=True)
     os.makedirs(SoVITS_weight_root, exist_ok=True)
     os.makedirs(GPT_weight_root, exist_ok=True)
-    if os.path.exists(os.path.join(EXP_ROOT_DIR, EXP_NAME)):
-        shutil.rmtree(os.path.join(EXP_ROOT_DIR, EXP_NAME))
+    if os.path.exists(os.path.join(EXP_ROOT_DIR, sid)):
+        shutil.rmtree(os.path.join(EXP_ROOT_DIR, sid))
 
     step_slice()
     step_denoise()
@@ -345,26 +346,26 @@ if __name__ == '__main__':
     step_train_gpt()
 
     # todo 模型目录xx_root应该按EXPNAME进行区分？
-    sovits_fp = os.path.join(SoVITS_weight_root, EXP_NAME + ".latest.pth")
-    gpt_fp = os.path.join(GPT_weight_root, EXP_NAME + ".latest.ckpt")
+    sovits_fp = os.path.join(SoVITS_weight_root, sid + ".latest.pth")
+    gpt_fp = os.path.join(GPT_weight_root, sid + ".latest.ckpt")
     os.rename(os.path.join(SoVITS_weight_root, get_latest_fp(SoVITS_weight_root)), sovits_fp)
     os.rename(os.path.join(GPT_weight_root, get_latest_fp(GPT_weight_root)), gpt_fp)
 
     if POST_TO_OSS == "1":
         logging.info(">>> Uploading sovits model to qiniu.")
-        url = utils_audio.post2qiniu(sovits_fp, f"{EXP_NAME}_sovits")
+        url = utils_audio.post2qiniu(sovits_fp, get_sovits_oss(sid))
         logging.info(f">>> url as: '{url}'")
         logging.info(">>> Uploading gpt model to qiniu.")
-        url = utils_audio.post2qiniu(gpt_fp, f"{EXP_NAME}_gpt")
+        url = utils_audio.post2qiniu(gpt_fp, get_gpt_oss(sid))
         logging.info(f">>> url as: '{url}'")
 
     # Show models path
     models_fp = []
     for i in os.listdir(SoVITS_weight_root):
-        if EXP_NAME in i:
+        if sid in i:
             models_fp.append(os.path.abspath(os.path.join(SoVITS_weight_root, i)))
     for i in os.listdir(GPT_weight_root):
-        if EXP_NAME in i:
+        if sid in i:
             models_fp.append(os.path.abspath(os.path.join(GPT_weight_root, i)))
     logging.info(">>> Models path:\n%s" % "\n".join(models_fp))
     logging.info("<<< Training finished.")

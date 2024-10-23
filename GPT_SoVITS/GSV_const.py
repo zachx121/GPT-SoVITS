@@ -8,6 +8,32 @@ GPT_DIR = os.path.abspath(os.path.expanduser("./GPT_weights/"))
 SOVITS_DIR = os.path.abspath(os.path.expanduser("./SoVITS_weights/"))
 
 
+class Route:
+    @staticmethod
+    def get_sovits_fp(sid):
+        return os.path.join(SOVITS_DIR, sid, sid + ".latest.pth")
+
+    @staticmethod
+    def get_gpt_fp(sid):
+        return os.path.join(GPT_DIR, sid, sid + ".latest.ckpt")
+
+    @staticmethod
+    def get_sovits_osskey(sid):
+        return f"models/{sid}/{sid}_sovits"
+
+    @staticmethod
+    def get_gpt_osskey(sid):
+        return f"models/{sid}/{sid}_gpt"
+
+    @staticmethod
+    def get_ref_audio_fp(sid, suffix):
+        return os.path.join(VOICE_SAMPLE_DIR, sid, f'ref_audio_{suffix}.wav')
+
+    @staticmethod
+    def get_ref_text_fp(sid, suffix):
+        return os.path.join(VOICE_SAMPLE_DIR, sid, f'ref_text_{suffix}.txt')
+
+
 class InferenceParam:
     trace_id: str = None
     speaker: str = None  # 角色音

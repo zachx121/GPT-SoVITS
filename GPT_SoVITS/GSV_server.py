@@ -41,37 +41,26 @@ import shutil
 from urllib.parse import unquote
 from subprocess import getstatusoutput, check_output
 from flask import Flask, request
-import soundfile as sf
 logging.basicConfig(format='[%(asctime)s-%(levelname)s-CLIENT]: %(message)s',
                     datefmt="%Y-%m-%d %H:%M:%S",
                     level=logging.INFO)
-from GSV_model import GSVModel,ReferenceInfo
-from GSV_const import InferenceParam, LANG_MAP, D_REF_SUFFIX, VOICE_SAMPLE_DIR, GPT_DIR, SOVITS_DIR
+from GSV_model import GSVModel, ReferenceInfo
+import GSV_const as C
+from GSV_const import Route as R
 import multiprocessing as mp
 import utils_audio
 
 app = Flask(__name__, static_folder="./static_folder", static_url_path="")
-logging.info(f"VOICE_SAMPLE_DIR: {VOICE_SAMPLE_DIR}")
-logging.info(f"GPT_DIR: {GPT_DIR}")
-logging.info(f"SOVITS_DIR: {SOVITS_DIR}")
-
-
-def get_sovits_fp(sid):
-    return os.path.join(SOVITS_DIR, sid, sid + ".latest.pth")
-
-
-def get_gpt_fp(sid):
-    return os.path.join(GPT_DIR, sid, sid + ".latest.ckpt")
 
 
 def model_process(sid, q_inp, q_out, event):
-    M = GSVModel(sovits_model_fp=get_sovits_fp(sid),
-                 gpt_model_fp=get_gpt_fp(sid),
+    M = GSVModel(sovits_model_fp=R.get_sovits_fp(sid),
+                 gpt_model_fp=R.get_gpt_fp(sid),
                  speaker=sid)
     event.set()
     while True:
         try:
-            p:InferenceParam = q_inp.get()
+            p: C.InferenceParam = q_inp.get()
             tlist = []
             tlist.append(int(time.time()*1000))
             if p is None:
@@ -147,10 +136,10 @@ def load_model():
         return json.dumps(res)
 
     # 从OSS上加载模型
-    if download_overwrite == "1" or (not (os.path.exists(get_sovits_fp(sid)) and os.path.exists(get_gpt_fp(sid)))):
+    if download_overwrite == "1" or (not (os.path.exists(R.get_sovits_fp(sid)) and os.path.exists(R.get_gpt_fp(sid)))):
         try:
-            utils_audio.download_from_qiniu(sid+"_sovits", get_sovits_fp(sid))
-            utils_audio.download_from_qiniu(sid+"_gpt", get_gpt_fp(sid))
+            utils_audio.download_from_qiniu(R.get_sovits_osskey(sid), R.get_sovits_fp(sid))
+            utils_audio.download_from_qiniu(R.get_gpt_osskey(sid), R.get_gpt_fp(sid))
         except Exception as e:
             logging.error(f"error when download '{sid}': {repr(e.message)}")
             res['status'] = 1
@@ -200,11 +189,10 @@ def unload_model():
 
 
 def add_default_ref(sid):
-    asr_fp = os.path.join(VOICE_SAMPLE_DIR, sid, "asr", "denoised.list")
-    suffix = D_REF_SUFFIX
-    os.makedirs(os.path.join(VOICE_SAMPLE_DIR, sid), exist_ok=True)
-    audio_fp = os.path.join(VOICE_SAMPLE_DIR, sid, f'ref_audio_{suffix}.wav')
-    text_fp = os.path.join(VOICE_SAMPLE_DIR, sid, f'ref_text_{suffix}.txt')
+    asr_fp = os.path.join(C.VOICE_SAMPLE_DIR, sid, "asr", "denoised.list")
+    os.makedirs(os.path.join(C.VOICE_SAMPLE_DIR, sid), exist_ok=True)
+    audio_fp = R.get_ref_audio_fp(sid, C.D_REF_SUFFIX)
+    text_fp = R.get_ref_text_fp(sid, C.D_REF_SUFFIX)
 
     assert os.path.exists(asr_fp)
     with open(asr_fp, "r", encoding='utf-8') as fr:
@@ -215,7 +203,7 @@ def add_default_ref(sid):
     infos = line.split("|")
     _audio_fp = infos[0]
     _lang = infos[2]
-    _lang_map = {v: k for k, v in LANG_MAP.items()}
+    _lang_map = {v: k for k, v in C.LANG_MAP.items()}
     _lang = _lang_map[_lang]
     _text = infos[3]
 
@@ -242,13 +230,13 @@ def add_reference():
     info = request.get_json()
     logging.debug(info)
     sid = info['speaker']
-    suffix = info.get("ref_suffix", D_REF_SUFFIX)
-    os.makedirs(os.path.join(VOICE_SAMPLE_DIR, sid), exist_ok=True)
-    audio_fp = os.path.join(VOICE_SAMPLE_DIR, sid, f'ref_audio_{suffix}.wav')
-    text_fp = os.path.join(VOICE_SAMPLE_DIR, sid, f'ref_text_{suffix}.txt')
+    suffix = info.get("ref_suffix", C.D_REF_SUFFIX)
+    os.makedirs(os.path.join(C.VOICE_SAMPLE_DIR, sid), exist_ok=True)
+    audio_fp = R.get_ref_audio_fp(sid, C.D_REF_SUFFIX)
+    text_fp = R.get_ref_text_fp(sid, C.D_REF_SUFFIX)
 
     # 如果没有用默认的就说明有指定的音频，否则用训练集里的一句话
-    if suffix != D_REF_SUFFIX:
+    if suffix != C.D_REF_SUFFIX:
         logging.info(f">>> will use **ASSIGNED** audio&text with suffix: '{suffix}'")
         cmd = f"wget \"{info['ref_audio_url']}\" -O {audio_fp}"
         logging.debug(f"will execute `{cmd}`")
@@ -294,13 +282,13 @@ def inference():
     tlist.append(int(time.time()*1000))
     info = request.get_json()
     logging.warning(f"inference at {time.time():.03f}s info:{info}")
-    p = InferenceParam(info)
+    p = C.InferenceParam(info)
     # 检查speaker是否已经加载
     if p.speaker not in M_dict:
         return f"inference使用的角色音({p.speaker})未被加载。已加载角色音: {M_dict.keys()}", 400
     # 检查是否设置过默认的ref
-    ref_audio_fp = os.path.join(VOICE_SAMPLE_DIR, p.speaker, f'ref_audio_{p.ref_suffix}.wav')
-    ref_text_fp = os.path.join(VOICE_SAMPLE_DIR, p.speaker, f'ref_text_{p.ref_suffix}.txt')
+    ref_audio_fp = R.get_ref_audio_fp(p.speaker, C.D_REF_SUFFIX)
+    ref_text_fp = R.get_ref_text_fp(p.speaker, C.D_REF_SUFFIX)
     if not (os.path.exists(ref_audio_fp) and os.path.exists(ref_text_fp)):
         logging.warning(f">>> reference as '{p.ref_suffix}' is not ready, init a default one from training data.")
         add_default_ref(p.speaker)
@@ -323,11 +311,11 @@ def train_model():
     """
     info = request.get_json()
     logging.debug(info)
-    speaker = info['speaker']
+    sid = info['speaker']
     lang = info['lang']
     data_urls = info['data_urls']
     post2oss = "1"
-    data_dir = os.path.join(VOICE_SAMPLE_DIR, speaker)
+    data_dir = os.path.join(C.VOICE_SAMPLE_DIR, sid)
     if os.path.exists(data_dir):
         shutil.rmtree(data_dir)
     os.makedirs(data_dir)
@@ -348,7 +336,7 @@ def train_model():
     logging.info(f">>> Start Model Training.")
     # nohup python GPT_SoVITS/GSV_train.py zh_cn ChatTTS_Voice_Clone_4_222rb2j voice_sample/ChatTTS_Voice_Clone_4_222rb2j > ChatTTS_Voice_Clone_4_222rb2j.train 2>&1 &
     # python GPT_SoVITS/GSV_train.py zh_cn test_silang1636 voice_sample/test_silang1636 > test_silang1636.train
-    cmd = f"nohup python GPT_SoVITS/GSV_train.py {lang} {speaker} {data_dir} {post2oss} > {speaker}.train 2>&1 &"
+    cmd = f"nohup python GPT_SoVITS/GSV_train.py {lang} {sid} {data_dir} {post2oss} > {sid}.train 2>&1 &"
     logging.info(f"    cmd is {cmd}")
     status, output = getstatusoutput(cmd)
     if status != 0:
@@ -407,8 +395,8 @@ def download_model():
     res = []
     for sid in sid_list:
         try:
-            utils_audio.download_from_qiniu(sid+"_sovits", get_sovits_fp(sid))
-            utils_audio.download_from_qiniu(sid+"_gpt", get_gpt_fp(sid))
+            utils_audio.download_from_qiniu(sid+"_sovits", R.get_sovits_fp(sid))
+            utils_audio.download_from_qiniu(sid+"_gpt", R.get_gpt_fp(sid))
             res.append({"model_name": sid, "download_success": True})
         except Exception as e:
             logging.error(f"error when download '{sid}': {repr(e.message)}")
@@ -421,8 +409,8 @@ def download_model():
 
 
 # OSS下载完模型后，要用这个检查是否下载成功
-@app.route("/is_model_available", methods=['POST'])
-def is_model_available():
+@app.route("/is_model_oss_available", methods=['POST'])
+def is_model_oss_available():
     """
     模型训练是否完成
     http params:
@@ -431,19 +419,21 @@ def is_model_available():
     info = request.get_json()
     speaker_list = info['speaker_list']
     status = []
-    for s in speaker_list:
-        cond1 = os.path.exists(get_sovits_fp(s))
-        cond2 = os.path.exists(get_gpt_fp(s))
-        status.append({"model_name": s, "is_available": cond1 and cond2})
+    for sid in speaker_list:
+        cond1 = utils_audio.check_on_qiniu(R.get_sovits_osskey(sid))
+        cond2 = utils_audio.check_on_qiniu(R.get_gpt_osskey(sid))
+        # cond1 = os.path.exists(R.get_sovits_fp(sid))
+        # cond2 = os.path.exists(R.get_gpt_fp(sid))
+        status.append({"model_name": sid, "is_available": cond1 and cond2})
     return json.dumps(status), 200
 
 
 if __name__ == '__main__':
     mp.set_start_method("spawn")
     logging.info("Preparing")
-    os.makedirs(VOICE_SAMPLE_DIR, exist_ok=True)
-    os.makedirs(GPT_DIR, exist_ok=True)
-    os.makedirs(SOVITS_DIR, exist_ok=True)
+    os.makedirs(C.VOICE_SAMPLE_DIR, exist_ok=True)
+    os.makedirs(C.GPT_DIR, exist_ok=True)
+    os.makedirs(C.SOVITS_DIR, exist_ok=True)
     M_dict = {}
 
     logging.info("Start Server")
