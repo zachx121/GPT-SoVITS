@@ -146,6 +146,7 @@ def load_model():
         res['msg'] = 'GPU OOM'
         return json.dumps(res)
 
+    # 从OSS上加载模型
     if download_overwrite == "1" or (not (os.path.exists(get_sovits_fp(sid)) and os.path.exists(get_gpt_fp(sid)))):
         try:
             utils_audio.download_from_qiniu(sid+"_sovits", get_sovits_fp(sid))
@@ -155,12 +156,6 @@ def load_model():
             res['status'] = 1
             res['msg'] = f"model of '{sid}' is not found and download failed"
             return json.dumps(res)
-
-    ref_audio_fp = os.path.join(VOICE_SAMPLE_DIR, sid, f'ref_audio_{D_REF_SUFFIX}.wav')
-    ref_text_fp = os.path.join(VOICE_SAMPLE_DIR, sid, f'ref_text_{D_REF_SUFFIX}.txt')
-    if not (os.path.exists(ref_audio_fp) and os.path.exists(ref_text_fp)):
-        logging.info(">>> reference is not ready, init a default one from training data.")
-        add_default_ref(sid)
 
     # 开启N个子进程加载模型并等待Queue里的数据来处理请求
     q_inp = mp.Queue()
@@ -300,8 +295,15 @@ def inference():
     info = request.get_json()
     logging.warning(f"inference at {time.time():.03f}s info:{info}")
     p = InferenceParam(info)
+    # 检查speaker是否已经加载
     if p.speaker not in M_dict:
         return f"inference使用的角色音({p.speaker})未被加载。已加载角色音: {M_dict.keys()}", 400
+    # 检查是否设置过默认的ref
+    ref_audio_fp = os.path.join(VOICE_SAMPLE_DIR, p.speaker, f'ref_audio_{p.ref_suffix}.wav')
+    ref_text_fp = os.path.join(VOICE_SAMPLE_DIR, p.speaker, f'ref_text_{p.ref_suffix}.txt')
+    if not (os.path.exists(ref_audio_fp) and os.path.exists(ref_text_fp)):
+        logging.warning(f">>> reference as '{p.ref_suffix}' is not ready, init a default one from training data.")
+        add_default_ref(p.speaker)
     tlist.append(int(time.time()*1000))
     M_dict[p.speaker]["q_inp"].put(p)
     tlist.append(int(time.time()*1000))
