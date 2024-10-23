@@ -5,7 +5,7 @@ import sys
 import json
 import yaml
 import utils_audio
-from GSV_const import get_gpt_oss, get_sovits_oss
+from GSV_const import Route as R
 from subprocess import Popen,getstatusoutput
 logging.basicConfig(format='[%(asctime)s-%(levelname)s-%(funcName)s]: %(message)s',
                     datefmt="%Y-%m-%d %H:%M:%S",
@@ -353,10 +353,10 @@ if __name__ == '__main__':
 
     if POST_TO_OSS == "1":
         logging.info(">>> Uploading sovits model to qiniu.")
-        url = utils_audio.post2qiniu(sovits_fp, get_sovits_oss(sid))
+        url = utils_audio.post2qiniu(sovits_fp, R.get_sovits_osskey(sid))
         logging.info(f">>> url as: '{url}'")
         logging.info(">>> Uploading gpt model to qiniu.")
-        url = utils_audio.post2qiniu(gpt_fp, get_gpt_oss(sid))
+        url = utils_audio.post2qiniu(gpt_fp, R.get_gpt_osskey(sid))
         logging.info(f">>> url as: '{url}'")
 
     # Show models path
