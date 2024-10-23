@@ -14,12 +14,12 @@ def slice(inp,opt_root,threshold,min_length,min_interval,hop_size,max_sil_kept,_
     elif os.path.isdir(inp):
         for name in sorted(list(os.listdir(inp))):
             if any(name.endswith(i) for i in ['m4a', 'mp3', 'mp4']):
-                inp = "/root/GPT-SoVITS/voice_sample/ChatTTS_Voice_Clone_4_222rb2j"
+                # inp = "/root/GPT-SoVITS/voice_sample/ChatTTS_Voice_Clone_4_222rb2j"
                 fp = os.path.join(inp, name)
                 new_fp = os.path.join(inp, os.path.splitext(name)[0]+".wav")
                 cmd = f"ffmpeg -y -i {fp} {new_fp}"
                 s, _ = getstatusoutput(cmd)
-                assert s == 0, "ffmpeg转换格式时错误"
+                assert s == 0, f"ffmpeg转换格式时错误, cmd: '{cmd}'"
         input=[os.path.join(inp, name) for name in sorted(list(os.listdir(inp))) if name.endswith(".wav")]
     else:
         return "输入路径存在但既不是文件也不是文件夹"
