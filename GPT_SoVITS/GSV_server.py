@@ -80,9 +80,9 @@ def model_process(sid, q_inp, q_out, event):
                    # "audio_buffer": base64.b64encode(wav_arr.tobytes()).decode(),
                    "audio_buffer_int16": base64.b64encode(wav_arr_int16.tobytes()).decode(),
                    "sample_rate": 16000,
-                   "status": 0,
+                   "code": 0,
                    "msg": "success."}
-            rsp = json.dumps({"status": 0,
+            rsp = json.dumps({"code": 0,
                               "msg": "",
                               "result": rsp})
             tlist.append(int(time.time()*1000))
@@ -115,7 +115,7 @@ def load_model():
     - speaker:str
     - speaker_num:int
     """
-    res = {"status": 0, "msg": "", "result": ""}
+    res = {"code": 0, "msg": "", "result": ""}
     info = request.get_json()
     sid = info['speaker']
     sid_num = info['speaker_num']
@@ -170,7 +170,7 @@ def unload_model():
     info = request.get_json()
     sid = info["speaker"]
     if sid not in M_dict:
-        res = {"status": 1,
+        res = {"code": 1,
                "msg": f"sid('{sid}') not loaded yet",
                "result": ""}
         return res
@@ -182,7 +182,7 @@ def unload_model():
         p.join()
     # 清理掉字典里记录的kv
     del M_dict[sid]
-    res = {"status": 0,
+    res = {"code": 0,
            "msg": "Model Unloaded",
            "result": ""}
     return json.dumps(res)
@@ -225,8 +225,6 @@ def add_reference():
     - ref_audio_url:str optional
     - ref_text_url:str optional
     """
-    if request.method != "POST":
-        return "Only Support Post", 400
     info = request.get_json()
     logging.debug(info)
     sid = info['speaker']
@@ -242,7 +240,7 @@ def add_reference():
         logging.debug(f"will execute `{cmd}`")
         status, output = getstatusoutput(cmd)
         if status != 0:
-            res = json.dumps({"status": 1,
+            res = json.dumps({"code": 1,
                               "msg": f"Reference Audio Download Wrong",
                               "result": ""})
             return res
@@ -251,17 +249,17 @@ def add_reference():
         logging.debug(f"will execute `{cmd}`")
         status, output = getstatusoutput(cmd)
         if status != 0:
-            res = json.dumps({"status": 1,
+            res = json.dumps({"code": 1,
                               "msg": f"Reference Text Download Wrong",
                               "result": ""})
             return res
 
-        res = json.dumps({"status": 0,
+        res = json.dumps({"code": 0,
                           "msg": "Reference added.",
                           "result": ""})
     else:
         add_default_ref(sid)
-        res = json.dumps({"status": 0,
+        res = json.dumps({"code": 0,
                           "msg": "Automatic Reference added.",
                           "result": ""})
     return res
@@ -273,11 +271,6 @@ def inference():
     http params:
     - 以Param类的成员变量为准
     """
-    if request.method != "POST":
-        return "Only Support Post", 400
-    if len(M_dict) == 0:
-        return "No available Model", 400
-
     tlist = []
     tlist.append(int(time.time()*1000))
     info = request.get_json()
@@ -285,7 +278,9 @@ def inference():
     p = C.InferenceParam(info)
     # 检查speaker是否已经加载
     if p.speaker not in M_dict:
-        return f"inference使用的角色音({p.speaker})未被加载。已加载角色音: {M_dict.keys()}", 400
+        return json.dumps({"code": 1,
+                           "msg": f"inference使用的角色音({p.speaker})未被加载。已加载角色音: {M_dict.keys()}",
+                           "result": ""})
     # 检查是否设置过默认的ref
     ref_audio_fp = R.get_ref_audio_fp(p.speaker, C.D_REF_SUFFIX)
     ref_text_fp = R.get_ref_text_fp(p.speaker, C.D_REF_SUFFIX)
@@ -298,7 +293,7 @@ def inference():
     result = M_dict[p.speaker]["q_out"].get()
     tlist.append(int(time.time()*1000))
     print(f"server api tlist: " + ",".join([f'{b - a}ms' for a, b in zip(tlist[:-1], tlist[1:])]))
-    return result, 200
+    return result
 
 
 @app.route("/train_model", methods=['POST'])
@@ -329,10 +324,10 @@ def train_model():
         if status != 0:
             logging.error(f"    Download fail. url is {url}")
     if len(os.listdir(data_dir)) == 0:
-        res = json.dumps({"status": 1,
+        res = json.dumps({"code": 1,
                           "msg": "All Audio url failed to download.",
                           "result": ""})
-        return res, 200
+        return res
     logging.info(f">>> Start Model Training.")
     # nohup python GPT_SoVITS/GSV_train.py zh_cn ChatTTS_Voice_Clone_4_222rb2j voice_sample/ChatTTS_Voice_Clone_4_222rb2j > ChatTTS_Voice_Clone_4_222rb2j.train 2>&1 &
     # python GPT_SoVITS/GSV_train.py zh_cn test_silang1636 voice_sample/test_silang1636 > test_silang1636.train
@@ -341,16 +336,14 @@ def train_model():
     status, output = getstatusoutput(cmd)
     if status != 0:
         logging.error(f"    Model training failed. error:\n{output}")
-        res = json.dumps({"status": 1,
+        res = json.dumps({"code": 1,
                           "msg": "Model Training Failed",
                           "result": ""})
-        st_code = 200
     else:
-        res = json.dumps({"status": 0,
+        res = json.dumps({"code": 0,
                           "msg": "Model Training Started.",
                           "result": ""})
-        st_code = 200
-    return res, st_code
+    return res
 
 
 @app.route("/check_training_status", methods=['POST'])
@@ -360,13 +353,13 @@ def check_training_status():
     status, output = getstatusoutput(cmd)
     # 注意没有训练进程时，status是1，output是空串
     if output == "":
-        res = json.dumps({"status": 0,
+        res = json.dumps({"code": 0,
                           "msg": "success",
                           "result": json.dumps([])})
     else:
         assert status == 0, f"cmd execution failed. cmd:'{cmd}' output:'{output}'"
         sid_list = [re.split("\s+", i)[10] for i in output.split("\n")]
-        res = json.dumps({"status": 0,
+        res = json.dumps({"code": 0,
                           "msg": "success",
                           "result": json.dumps(sid_list)})
     return res
@@ -382,10 +375,10 @@ def model_status():
         res.append({"model_name": k, "model_num": size})
 
     logging.debug(str(res))
-    res = json.dumps({"status": 0,
+    res = json.dumps({"code": 0,
                       "msg": "",
                       "result": res})
-    return res, 200
+    return res
 
 
 @app.route("/download_model", methods=['POST'])
@@ -402,10 +395,10 @@ def download_model():
             logging.error(f"error when download '{sid}': {repr(e.message)}")
             res.append({"model_name": sid, "download_success": False})
 
-    res = json.dumps({"status": 0,
+    res = json.dumps({"code": 0,
                       "msg": "",
                       "result": res})
-    return res, 200
+    return res
 
 
 # OSS下载完模型后，要用这个检查是否下载成功
