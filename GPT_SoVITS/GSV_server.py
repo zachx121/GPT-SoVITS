@@ -411,14 +411,16 @@ def is_model_oss_available():
     """
     info = request.get_json()
     speaker_list = info['speaker_list']
-    status = []
+    if speaker_list not in info:
+        return json.dumps({"code": 1, "msg": "speaker_list is required", "result": []})
+    m_status = []
     for sid in speaker_list:
         cond1 = utils_audio.check_on_qiniu(R.get_sovits_osskey(sid))
         cond2 = utils_audio.check_on_qiniu(R.get_gpt_osskey(sid))
         # cond1 = os.path.exists(R.get_sovits_fp(sid))
         # cond2 = os.path.exists(R.get_gpt_fp(sid))
-        status.append({"model_name": sid, "is_available": cond1 and cond2})
-    return json.dumps(status), 200
+        m_status.append({"model_name": sid, "is_available": cond1 and cond2})
+    return json.dumps({"code": 0, "msg": "", "result": m_status})
 
 
 if __name__ == '__main__':
