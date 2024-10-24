@@ -6,50 +6,72 @@ import numpy as np
 import base64
 import scipy
 import time
+from tqdm.auto import tqdm
+import multiprocessing as mp
+import logging
+logging.basicConfig(format='[%(asctime)s-%(levelname)s-%(funcName)s]: %(message)s',
+                    datefmt="%Y-%m-%d %H:%M:%S",
+                    level=logging.DEBUG)
 
 url = "https://u212392-8449-c474cb97.beijinga.seetacloud.com/"
 
 headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
 
 
-def train(sid):
+def train(sid, data_urls):
+    logging.info(">>> start train")
     rsp = requests.post(url + "train_model",
                         data=json.dumps({"speaker": sid,
                                          "lang": "zh_cn",
-                                         "data_urls": ['https://public.yisounda.com/tmp.wav?e=1729227642&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:sb8W5U6yEvfMd6wW7q2UC7wI-8w=']}),
+                                         "data_urls": data_urls}),
                         headers=headers)
     print(rsp.status_code, rsp.json())
     pass
 
 def load(sid):
+    logging.info(">>> start load")
     rsp = requests.post(url + "load_model",
                         data=json.dumps({"speaker": sid, "speaker_num": 2}),
-                        headers=headers)
+                        headers=headers,
+                        timeout=10)
     print(rsp.status_code, rsp.json())
 
 def unload(sid):
+    logging.info(">>> start unload")
     rsp = requests.post(url + "unload_model",
                         data=json.dumps({"speaker": sid}),
                         headers=headers)
     print(rsp.status_code, rsp.json())
 
 def add_ref(sid):
+    logging.info(">>> start add_ref")
     # 只传一个sid，表示自动用训练集的第一个音频作为reference
     rsp = requests.post(url + "add_reference",
                         data=json.dumps({"speaker": sid}),
                         headers=headers)
     print(rsp.status_code, rsp.json())
 
+def is_model_oss_available(sid):
+    rsp = requests.post(url + "is_model_oss_available",
+                        data=json.dumps({"speaker_list": [sid]}),
+                        headers=headers)
+    print(rsp.status_code, rsp.json())
+    return rsp.json()[0]['is_available']
+
 def model_status(sid):
+    logging.info(">>> start model_status")
     rsp = requests.post(url + "model_status", headers=headers)
     print(rsp.status_code, rsp.json())
 
 def inference(sid,
               lang="en_us",
-              text="Hello, I'm not sure I understand your description"):
+              text="Hello, I'm not sure I understand your description",
+              trace_id="debug_GSV_client"):
+    logging.info(">>> start inference")
     # # 注意 lang 和 text一定要对齐，不能用text是中文文本然后lang又指定英文，100%泄漏reference音频或者乱读
     rsp = requests.post(url + "inference",
-                        data=json.dumps({"trace_id": "debug_GSV_client", "speaker": sid,
+                        data=json.dumps({"trace_id": trace_id,
+                                         "speaker": sid,
                                          "text": text,
                                          "lang": lang,
                                          # "text": "你好，我正在尝试解答这个问题",
@@ -63,22 +85,41 @@ def inference(sid,
 
 
 sid = 'test_silang1636'
-# sid = 'ChatTTS_Voice_Clone_4_222rb2j'
-train(sid)
-for i in range(10):
-    time.sleep(5)
-    rsp = requests.post(url + "check_training_status", data=json.dumps({}), headers=headers)
-    print(rsp.status_code, rsp.json())
-# add_ref(sid)
+sid = "fuhang_1"
+sid = "ChatTTS_Voice_Clone_0_Mike_yvmz"
+# fuhang_data_urls = ["https://public.yisounda.com/fuhang.m4a?e=1729698462&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:c6qaV6h2qIyUX03u4gJQILb8Ipo="]
+# train(sid, fuhang_data_urls)
+# for i in range(5):
+#     time.sleep(5)
+#     rsp = requests.post(url + "check_training_status", data=json.dumps({}), headers=headers)
+#     print(rsp.status_code, rsp.json())
+# assert is_model_oss_available(sid)
 # sys.exit(0)
 load(sid)
 model_status(sid)
-inference(sid)
-
-# rsp = requests.post(url + "is_model_available",
-#                     data=json.dumps({"speaker_list": ["test_silang1636", "ChatTTS_Voice_Clone_4_222rb2j", "test_silang4"]}),
-#                     headers=headers)
-# print(rsp.status_code, rsp.json())
+# sys.exit(0)
+sta = time.time()
+# add_ref(sid)  # 不需要了，load会自动指定默认ref
+# inference(sid, text=f"this is a general sentence of number", trace_id=f"debug_")
+inference(sid, lang="zh_cn", text=f"你好啊，我的朋友。很高兴认识你！你们在做什么事情呢？", trace_id=f"debug_")
+inference(sid, lang="en_us", text=f"hi there. how is your day? I'm glad to meet you", trace_id=f"debug_")
+end = time.time()
+print(f"duration: {end-sta:.02f}s")
+sys.exit(0)
+# 多进程并发请求
+def func(i):
+    sta = int(time.time() * 1000)
+    logging.info(f"Inference of idx={i}")
+    # inference(sid, text=f"this is a general sentence of number {i}", trace_id=f"debug_{i}")
+    inference(sid, lang="zh_cn", text=f"你好啊，我的朋友。很高兴认识你！你们在做什么事情呢？", trace_id=f"debug_{i}")
+    end = int(time.time() * 1000)
+    return i, {"sta": sta, "end": end, "duration": end - sta}
+mp.set_start_method("fork")
+with mp.Pool(20) as p:
+    all_res = p.map(func, range(20))
+    info = dict(all_res)
+print("time as follow: ")
+print(info)
 
 
 def standalone_debug():
@@ -87,7 +128,7 @@ def standalone_debug():
     import sys
     sys.path.append("/root/GPT-SoVITS/GPT_SoVITS")
     from GSV_model import GSVModel, ReferenceInfo
-    from GSV_server import Param
+    from GSV_const import InferenceParam
     import numpy as np
     import librosa
     import scipy
@@ -96,12 +137,12 @@ def standalone_debug():
     GPT_DIR = os.path.abspath(os.path.expanduser("./GPT_weights/"))
     SOVITS_DIR = os.path.abspath(os.path.expanduser("./SoVITS_weights/"))
 
-    sid = "test_silang1636"
+    sid = "fuhang"
     M = GSVModel(sovits_model_fp=os.path.join(SOVITS_DIR, sid, sid + ".latest.pth"),
                  gpt_model_fp=os.path.join(GPT_DIR, sid, sid + ".latest.ckpt"),
                  speaker=sid)
-    p = Param({"trace_id": "dd", "speaker": sid, "text": "测试音频效果", "lang": "zh_cn"})
-    p = Param({"trace_id": "dd", "speaker": sid, "text": "I don't understand your meanings", "lang": "en_us"})
+    p = InferenceParam({"trace_id": "dd", "speaker": sid, "text": "测试音频效果", "lang": "zh_cn"})
+    p = InferenceParam({"trace_id": "dd", "speaker": sid, "text": "I don't understand your meanings", "lang": "en_us"})
 
     wav_sr, wav_arr_int16 = M.predict(target_text=p.text,
                                       target_lang=p.tgt_lang,
