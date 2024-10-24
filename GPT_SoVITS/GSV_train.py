@@ -66,18 +66,21 @@ def step_denoise():
 
 
 # ASR
-def step_asr(lang="ZH"):
+def step_asr(lang="auto"):
     from tools.asr.config import asr_dict
     asr_py = asr_dict["达摩 ASR (中文)"]["path"]
     if lang.upper() != "ZH":
         asr_py = asr_dict["Faster Whisper (多语种)"]["path"]
+    logging.info(f">>> Step_ASR's asr_py is '{asr_py}'")
 
     p_asr = None
     if (p_asr == None):
+        # python tools/asr/fasterwhisper_asr.py -i ./voice_sample/ChatTTS_Voice_Clone_0_Mike_yvmz/denoised -o ./voice_sample/ChatTTS_Voice_Clone_0_Mike_yvmz/asr -s large -l en -p float32
         cmd = f"""python 'tools/asr/{asr_py}' \
-        -i {DENOISED_DIR} \
-        -o {ASR_DIR} \
-        -s large -l zh -p float32 \
+        --input_folder {DENOISED_DIR} \
+        --output_folder {ASR_DIR} \
+        --model_size large \
+        --language {lang.lower()} -p float32 \
         """
         print(cmd)
         p_asr = Popen(cmd, shell=True)
@@ -312,8 +315,6 @@ if __name__ == '__main__':
     # python GPT_SoVITS/GSV_train.py ZH XiaoLin ~/AudioProject/voice_sample/XiaoLinShuo
     if len(sys.argv) == 5:
         LANG = sys.argv[1]
-        _lang_dict = {"zh_cn": "ZH", "en_us": "EN"}
-        LANG = _lang_dict.get(LANG, "ZH")
         sid = sys.argv[2]
         INPUT_DIR = sys.argv[3]
         POST_TO_OSS = sys.argv[4]
