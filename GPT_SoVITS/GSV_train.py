@@ -79,7 +79,7 @@ def step_asr(lang="auto"):
         cmd = f"""python 'tools/asr/{asr_py}' \
         --input_folder {DENOISED_DIR} \
         --output_folder {ASR_DIR} \
-        --model_size large \
+        --model_size large-v3-local \
         --language {lang.lower()} -p float32 \
         """
         print(cmd)

@@ -3,9 +3,14 @@ from GSV_model import ReferenceInfo
 
 LANG_MAP = {"zh_cn": "ZH", "en_us": "EN"}
 D_REF_SUFFIX = "default"
-VOICE_SAMPLE_DIR = os.path.abspath(os.path.expanduser("./voice_sample/"))
-GPT_DIR = os.path.abspath(os.path.expanduser("./GPT_weights/"))
-SOVITS_DIR = os.path.abspath(os.path.expanduser("./SoVITS_weights/"))
+# LOG_DIR = "logs"
+# VOICE_SAMPLE_DIR = os.path.abspath(os.path.expanduser("./voice_sample/"))
+# GPT_DIR = os.path.abspath(os.path.expanduser("./GPT_weights/"))
+# SOVITS_DIR = os.path.abspath(os.path.expanduser("./SoVITS_weights/"))
+LOG_DIR = "/root/autodl-tmp/logs"
+VOICE_SAMPLE_DIR = os.path.abspath(os.path.expanduser("/root/autodl-tmp/voice_sample/"))
+GPT_DIR = os.path.abspath(os.path.expanduser("/root/autodl-tmp/GPT_weights/"))
+SOVITS_DIR = os.path.abspath(os.path.expanduser("/root/autodl-tmp/SoVITS_weights/"))
 
 
 class Route:

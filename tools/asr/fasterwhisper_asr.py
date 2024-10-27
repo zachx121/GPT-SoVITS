@@ -97,8 +97,7 @@ if __name__ == '__main__':
                         help="Path to the folder containing WAV files.")
     parser.add_argument("-o", "--output_folder", type=str, required=True, 
                         help="Output folder to store transcriptions.")
-    parser.add_argument("-s", "--model_size", type=str, default='large-v3', 
-                        choices=check_fw_local_models(),
+    parser.add_argument("-s", "--model_size", type=str, default='large-v3-local',
                         help="Model Size of Faster Whisper")
     parser.add_argument("-l", "--language", type=str, default='ja',
                         choices=language_code_list,

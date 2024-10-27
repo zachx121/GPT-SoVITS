@@ -411,7 +411,7 @@ def is_model_oss_available():
     """
     info = request.get_json()
     speaker_list = info['speaker_list']
-    if speaker_list not in info:
+    if "speaker_list" not in info:
         return json.dumps({"code": 1, "msg": "speaker_list is required", "result": []})
     m_status = []
     for sid in speaker_list:
