@@ -5,6 +5,7 @@ import sys
 import json
 import yaml
 import utils_audio
+import GSV_const as C
 from GSV_const import Route as R
 from subprocess import Popen,getstatusoutput
 logging.basicConfig(format='[%(asctime)s-%(levelname)s-%(funcName)s]: %(message)s',
@@ -327,7 +328,7 @@ if __name__ == '__main__':
     DENOISED_DIR = os.path.join(INPUT_DIR, 'denoised')
     ASR_DIR = os.path.join(INPUT_DIR, 'asr')
     ASR_FP = os.path.join(ASR_DIR, os.path.basename(DENOISED_DIR)) + ".list"
-    EXP_ROOT_DIR = "logs"  # 模型训练相关的特征数据路径
+    EXP_ROOT_DIR = C.LOG_DIR  # "logs"  # 模型训练相关的特征数据路径
     TMP_DIR = os.path.join(EXP_ROOT_DIR, "TEMP_CONFIG")
     SoVITS_weight_root = os.path.join("SoVITS_weights", sid)  # 模型路径
     GPT_weight_root = os.path.join("GPT_weights", sid)  # 模型路径
