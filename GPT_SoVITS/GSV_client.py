@@ -18,15 +18,19 @@ url = "https://u212392-8449-c474cb97.beijinga.seetacloud.com/"
 headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
 
 
-def train(sid, data_urls):
+def train(sid, data_urls, lang):
+    assert lang in {"zh_cn", "en_us"}
     logging.info(">>> start train")
     rsp = requests.post(url + "train_model",
                         data=json.dumps({"speaker": sid,
-                                         "lang": "zh_cn",
+                                         "lang": lang,
                                          "data_urls": data_urls}),
                         headers=headers)
     print(rsp.status_code, rsp.json())
-    pass
+    for i in range(50):
+        time.sleep(5)
+        rsp = requests.post(url + "check_training_status", data=json.dumps({}), headers=headers)
+        print(rsp.status_code, rsp.json())
 
 def load(sid):
     logging.info(">>> start load")
@@ -56,7 +60,7 @@ def is_model_oss_available(sid):
                         data=json.dumps({"speaker_list": [sid]}),
                         headers=headers)
     print(rsp.status_code, rsp.json())
-    return rsp.json()[0]['is_available']
+    return rsp.json()['result'][0]['is_available']
 
 def model_status(sid):
     logging.info(">>> start model_status")
@@ -85,15 +89,10 @@ def inference(sid,
 
 
 sid = 'test_silang1636'
-sid = "fuhang_1"
-sid = "ChatTTS_Voice_Clone_0_Mike_yvmz"
-# fuhang_data_urls = ["https://public.yisounda.com/fuhang.m4a?e=1729698462&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:c6qaV6h2qIyUX03u4gJQILb8Ipo="]
-# train(sid, fuhang_data_urls)
-# for i in range(5):
-#     time.sleep(5)
-#     rsp = requests.post(url + "check_training_status", data=json.dumps({}), headers=headers)
-#     print(rsp.status_code, rsp.json())
-# assert is_model_oss_available(sid)
+sid, lang, sid_data_urls = "fuhang_1", "zh_cn", ["https://public.yisounda.com/fuhang.m4a?e=1729698462&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:c6qaV6h2qIyUX03u4gJQILb8Ipo="]
+sid, lang, sid_data_urls = "ChatTTS_Voice_Clone_0_Mike_komd", "en_us", ["http://resource.aisounda.cn/model%2Fclone%2Fself%2F97ba7a9c-7602-4cdb-994d-0f286fa4b99d.m4a?e=1730046614&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:mOgJ45UzLaRZiJbN0cA9CQLZMTs="]
+# train(sid, sid_data_urls, lang=lang)
+assert is_model_oss_available(sid)
 # sys.exit(0)
 load(sid)
 model_status(sid)

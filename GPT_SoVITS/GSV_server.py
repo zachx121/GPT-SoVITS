@@ -162,6 +162,7 @@ def load_model():
         pass
     M_dict[sid] = {"q_inp": q_inp, "q_out": q_out, "process_list": process_list}
     res['msg'] = "Init Success"
+    logging.info(f"<<< Init of '{sid}' finished.")
     return json.dumps(res)
 
 
