@@ -33,7 +33,9 @@ def slice(inp,opt_root,threshold,min_length,min_interval,hop_size,max_sil_kept,_
             name = os.path.basename(inp_path)
             audio = load_audio(inp_path, 32000)
             # print(audio.shape)
-            for chunk, start, end in slicer.slice(audio):  # start和end是帧数
+            res = slicer.slice(audio)
+            print(f"总共切分成: {len(res)} 最长时间: {max([i[0].shape[0] / sr for i in res])}")
+            for chunk, start, end in res:  # start和end是帧数
                 tmp_max = np.abs(chunk).max()
                 if(tmp_max>1):chunk/=tmp_max
                 chunk = (chunk / tmp_max * (_max * alpha)) + (1 - alpha) * chunk
