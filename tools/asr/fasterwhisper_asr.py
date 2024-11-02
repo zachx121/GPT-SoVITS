@@ -1,4 +1,5 @@
 import argparse
+import logging
 import os
 import traceback
 
@@ -69,7 +70,7 @@ def execute_asr(input_folder, output_folder, model_size, language, precision):
             text = ''
 
             if info.language == "zh":
-                print("检测为中文文本, 转 FunASR 处理")
+                logging.info("检测到文本为中文, 转 FunASR 处理再次处理")
                 if("only_asr"not in globals()):
                     from tools.asr.funasr_asr import \
                         only_asr  # #如果用英文就不需要导入下载模型
@@ -78,7 +79,7 @@ def execute_asr(input_folder, output_folder, model_size, language, precision):
             if text == '':
                 for segment in segments:
                     text += segment.text
-            output.append(f"{file_path}|{output_file_name}|{info.language.upper()}|{text}")
+            output.append(f"{file_path}|{output_file_name}|{info.language.upper()}|{text.strip()}")
         except:
             print(traceback.format_exc())
     

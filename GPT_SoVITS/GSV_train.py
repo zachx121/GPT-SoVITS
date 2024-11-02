@@ -5,12 +5,10 @@ import sys
 import json
 import yaml
 import utils_audio
+import wave
 import GSV_const as C
 from GSV_const import Route as R
 from subprocess import Popen,getstatusoutput
-logging.basicConfig(format='[%(asctime)s-%(levelname)s-%(funcName)s]: %(message)s',
-                    datefmt="%Y-%m-%d %H:%M:%S",
-                    level=logging.INFO)
 logging.getLogger('modelscope').setLevel(logging.WARNING)
 assert getstatusoutput("ls tools")[0] == 0, "必须在项目根目录下执行不然会有路径问题 e.g. python GPT_SoVITS/GSV_train.py"
 
@@ -25,8 +23,20 @@ def get_latest_fp(inp_dir):
     return fp
 
 
+def step_convert2wav(inp):
+    for name in sorted(list(os.listdir(inp))):
+        if any(name.endswith(i) for i in ['m4a', 'mp3', 'mp4']):
+            # inp = "/root/GPT-SoVITS/voice_sample/ChatTTS_Voice_Clone_4_222rb2j"
+            fp = os.path.join(inp, name)
+            new_fp = os.path.join(inp, os.path.splitext(name)[0] + ".wav")
+            cmd = f"ffmpeg -y -i {fp} {new_fp}"
+            logging.info(f">>> convert2wav: '{cmd}'")
+            s, _ = getstatusoutput(cmd)
+            assert s == 0, f"ffmpeg转换格式时错误, cmd: '{cmd}'"
+
+
 # 切片
-def step_slice():
+def step_slice(inp_dir, out_dir):
     threshold = -34  # 音量小于这个值视作静音的备选切割点
     min_length = 4000  # 每段最小多长，如果第一段太短一直和后面段连起来直到超过这个值
     min_interval = 100  # 最短切割间隔 (说话快的人就可以调小一点，默认是300）
@@ -40,16 +50,31 @@ def step_slice():
         for i_part in range(n_parts):
             cmd = f"""
                 python 'tools/slice_audio.py' \
-                {INPUT_DIR} \
-                {SLICE_DIR} \
+                {inp_dir} \
+                {out_dir} \
                 {threshold} {min_length} {min_interval} {hop_size} {max_sil_kept} {_max} {alpha} {i_part} {n_parts}
             """.strip()
-            print(cmd)
+            logging.info(f"execute cmd: {cmd}")
             p = Popen(cmd, shell=True)
             ps_slice.append(p)
         for p in ps_slice:
             p.wait()
         ps_slice = []
+
+    # 计算切分后平均音频文件的时长
+    logging.info(">>> Slice finished. ")
+    total_duration, num = 0, 0
+    for root, dirs, files in os.walk(out_dir):
+        for file in files:
+            if file.endswith('.wav'):
+                file_path = os.path.join(root, file)
+                with wave.open(file_path, 'rb') as wav_file:
+                    frames = wav_file.getnframes()
+                    rate = wav_file.getframerate()
+                    duration = frames / rate
+                    total_duration += duration
+                    num += 1
+    logging.info(f">>> Slice finished. output wav: [Num]:{num} [AvgDuration]:{total_duration/num:.04f}")
 
 
 # 降噪
@@ -83,11 +108,18 @@ def step_asr(lang="auto"):
         --model_size large-v3-local \
         --language {lang.lower()} -p float32 \
         """
-        print(cmd)
+        logging.info(f"asr cmd: {cmd}")
         p_asr = Popen(cmd, shell=True)
         p_asr.wait()
         p_asr = None
 
+
+    fp = os.path.join(ASR_DIR, "denoised.list")
+    with open(fp, "r") as fpr:
+        lines = fpr.readlines()
+        total_words = sum([len(l.split("|")[3].split(" ")) for l in lines])
+        avg_words = total_words/len(lines)
+    logging.info(f">>> ASR Finished. [Lines]: {len(lines)} [AvgWords]: {avg_words:.02f}")
 
 # 不能直接用webui.py里的open1abc，因为那个函数返回里用了yield
 def step_apply_pretrains():
@@ -314,6 +346,7 @@ def step_train_gpt(total_epoch=15):
 
 if __name__ == '__main__':
     # python GPT_SoVITS/GSV_train.py ZH XiaoLin ~/AudioProject/voice_sample/XiaoLinShuo
+    # python GPT_SoVITS/GSV_train.py EN ChatTTS_Voice_Clone_0_Kelly /root/autodl-tmp/voice_sample/ChatTTS_Voice_Clone_0_Kelly
     if len(sys.argv) == 5:
         LANG = sys.argv[1]
         sid = sys.argv[2]
@@ -322,6 +355,13 @@ if __name__ == '__main__':
     else:
         logging.error(f">>> sys.argv not enough (<LANG> <EXP_NAME> <INPUT_DIR> <POST_TO_OSS>). `{' '.join(sys.argv)}`")
         sys.exit(1)
+
+    logging.basicConfig(format='[%(asctime)s-%(levelname)s-%(funcName)s]: %(message)s',
+                        datefmt="%Y-%m-%d %H:%M:%S",
+                        level=logging.INFO,
+                        force=True,
+                        handlers=[logging.FileHandler(f"{sid}_train.log", mode='w'),
+                                  logging.StreamHandler()])
 
     IS_HALF = False
     SLICE_DIR = os.path.join(INPUT_DIR, 'sliced')
@@ -340,11 +380,19 @@ if __name__ == '__main__':
     if os.path.exists(os.path.join(EXP_ROOT_DIR, sid)):
         shutil.rmtree(os.path.join(EXP_ROOT_DIR, sid))
 
-    step_slice()
+    logging.info(">>> At step_convert2wav")
+    step_convert2wav(INPUT_DIR)
+    logging.info(">>> At step_slice")
+    step_slice(INPUT_DIR, SLICE_DIR)
+    logging.info(">>> At step_denoise")
     step_denoise()
+    logging.info(">>> At step_asr")
     step_asr(LANG)
+    logging.info(">>> At step_apply_pretrains")
     step_apply_pretrains()
+    logging.info(">>> At step_train_sovits")
     step_train_sovits()
+    logging.info(">>> At step_train_gpt")
     step_train_gpt()
 
     # todo 模型目录xx_root应该按EXPNAME进行区分？

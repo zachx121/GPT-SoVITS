@@ -11,3 +11,4 @@ reference
 GPT_weights
 SoVITS_weights
 TEMP
+*tools/denoise-model/*

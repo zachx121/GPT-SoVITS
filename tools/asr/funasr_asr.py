@@ -43,7 +43,7 @@ def execute_asr(input_folder, output_folder, model_size, language):
         try:
             file_path = os.path.join(input_folder, file_name)
             text = model.generate(input=file_path)[0]["text"]
-            output.append(f"{file_path}|{output_file_name}|{language.upper()}|{text}")
+            output.append(f"{file_path}|{output_file_name}|{language.upper()}|{text.strip()}")
         except:
             print(traceback.format_exc())
 

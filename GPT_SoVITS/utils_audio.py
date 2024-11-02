@@ -115,6 +115,11 @@ def check_on_qiniu(key):
     return key in [i['key'] for i in ret['items']]
 
 
+def get_url_from_qiniu(key):
+    private_url = Auth(QiniuConst.access_key, QiniuConst.secret_key).private_download_url('%s/%s' % (QiniuConst.bucket_domain, key), expires=3600)
+    return private_url
+
+
 def download_from_qiniu(key, fp):
     private_url = Auth(QiniuConst.access_key, QiniuConst.secret_key).private_download_url('%s/%s' % (QiniuConst.bucket_domain, key), expires=3600)
     cmd1 = f"mkdir -p {os.path.dirname(fp)}"
