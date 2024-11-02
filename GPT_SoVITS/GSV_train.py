@@ -15,6 +15,13 @@ assert getstatusoutput("ls tools")[0] == 0, "必须在项目根目录下执行�
 # 人声分离
 # cmd = "demucs --two-stems=vocals xx"
 
+def _get_duration_of_wav(file_path):
+    with wave.open(file_path, 'rb') as wav_file:
+        frames = wav_file.getnframes()
+        rate = wav_file.getframerate()
+        duration = frames / rate
+    return duration
+
 
 def get_latest_fp(inp_dir):
     _inp_dir = os.path.expanduser(inp_dir)
@@ -35,16 +42,16 @@ def step_convert2wav(inp):
             assert s == 0, f"ffmpeg转换格式时错误, cmd: '{cmd}'"
 
 
-# 切片
-def step_slice(inp_dir, out_dir):
+# 切片 min_interval常规还是用100，语速快的用80
+def step_slice(inp_dir, out_dir, min_interval=100):
     threshold = -34  # 音量小于这个值视作静音的备选切割点
     min_length = 4000  # 每段最小多长，如果第一段太短一直和后面段连起来直到超过这个值
-    min_interval = 100  # 最短切割间隔 (说话快的人就可以调小一点，默认是300）
+    # min_interval = 100  # 最短切割间隔 (说话快的人就可以调小一点，默认是300）
     hop_size = 10  # 怎么算音量曲线，越小精度越大计算量越高（不是精度越大效果越好）
     max_sil_kept = 500  # 切完后静音最多留多长
     _max = 0.9  # 归一化后最大值多少
     alpha = 0.25  # 混多少比例归一化后音频进来
-    n_parts = 4  # 并行数
+    n_parts = 1  # 并行数
     ps_slice = []
     if ps_slice == []:
         for i_part in range(n_parts):
@@ -63,18 +70,16 @@ def step_slice(inp_dir, out_dir):
 
     # 计算切分后平均音频文件的时长
     logging.info(">>> Slice finished. ")
-    total_duration, num = 0, 0
+    total_duration, max_duration, num = 0, 0, 0
     for root, dirs, files in os.walk(out_dir):
         for file in files:
             if file.endswith('.wav'):
                 file_path = os.path.join(root, file)
-                with wave.open(file_path, 'rb') as wav_file:
-                    frames = wav_file.getnframes()
-                    rate = wav_file.getframerate()
-                    duration = frames / rate
-                    total_duration += duration
-                    num += 1
-    logging.info(f">>> Slice finished. output wav: [Num]:{num} [AvgDuration]:{total_duration/num:.04f}")
+                duration = _get_duration_of_wav(file_path)
+                max_duration = max(max_duration, duration)
+                total_duration += duration
+                num += 1
+    logging.info(f">>> Slice finished. output wav: [Num]:{num} [AvgDuration]:{total_duration/num:.04f}, [MaxDuration]:{max_duration}")
 
 
 # 降噪
@@ -118,8 +123,9 @@ def step_asr(lang="auto"):
     with open(fp, "r") as fpr:
         lines = fpr.readlines()
         total_words = sum([len(l.split("|")[3].split(" ")) for l in lines])
+        longest = max([len(l.split("|")[3].split(" ")) for l in lines])
         avg_words = total_words/len(lines)
-    logging.info(f">>> ASR Finished. [Lines]: {len(lines)} [AvgWords]: {avg_words:.02f}")
+    logging.info(f">>> ASR Finished. [Lines]: {len(lines)} [AvgWords]: {avg_words:.02f} [LongestSeg]: {longest}")
 
 # 不能直接用webui.py里的open1abc，因为那个函数返回里用了yield
 def step_apply_pretrains():
@@ -345,10 +351,10 @@ def step_train_gpt(total_epoch=15):
 
 
 if __name__ == '__main__':
-    # python GPT_SoVITS/GSV_train.py ZH XiaoLin ~/AudioProject/voice_sample/XiaoLinShuo
-    # python GPT_SoVITS/GSV_train.py EN ChatTTS_Voice_Clone_0_Kelly /root/autodl-tmp/voice_sample/ChatTTS_Voice_Clone_0_Kelly
+    # python GPT_SoVITS/GSV_train.py ZH XiaoLin ~/AudioProject/voice_sample/XiaoLinShuo 1
+    # python GPT_SoVITS/GSV_train.py EN ChatTTS_Voice_Clone_0_Kelly /root/autodl-tmp/voice_sample/ChatTTS_Voice_Clone_0_Kelly 1
     if len(sys.argv) == 5:
-        LANG = sys.argv[1]
+        LANG = sys.argv[1]  # e.g. EN/ZH
         sid = sys.argv[2]
         INPUT_DIR = sys.argv[3]
         POST_TO_OSS = sys.argv[4]
@@ -374,20 +380,32 @@ if __name__ == '__main__':
     GPT_weight_root = os.path.join("GPT_weights", sid)  # 模型路径
 
     logging.info(f">>> Start with ExpName='{sid}', InputDir='{INPUT_DIR}', Language='{LANG}'")
-    os.makedirs(TMP_DIR, exist_ok=True)
-    os.makedirs(SoVITS_weight_root, exist_ok=True)
-    os.makedirs(GPT_weight_root, exist_ok=True)
-    if os.path.exists(os.path.join(EXP_ROOT_DIR, sid)):
-        shutil.rmtree(os.path.join(EXP_ROOT_DIR, sid))
+
+    # 清理上次遗留的数据
+    for i in [SLICE_DIR, DENOISED_DIR, ASR_DIR, EXP_ROOT_DIR, TMP_DIR, SoVITS_weight_root, GPT_weight_root]:
+        if os.path.exists(i):
+            shutil.rmtree(i)
+        os.makedirs(i, exist_ok=True)
 
     logging.info(">>> At step_convert2wav")
     step_convert2wav(INPUT_DIR)
     logging.info(">>> At step_slice")
-    step_slice(INPUT_DIR, SLICE_DIR)
+    step_slice(INPUT_DIR, SLICE_DIR, min_interval=80 if LANG == "EN" else 100)
     logging.info(">>> At step_denoise")
     step_denoise()
     logging.info(">>> At step_asr")
     step_asr(LANG)
+
+    with open(os.path.join(ASR_DIR, "denoised.list"), "r") as fpr:
+        lines = fpr.readlines()
+    logging.info(f""">>> 整体数据处理结果
+    [total lines]: {len(lines)}
+    [wordsNum(空格切分) avg]: {sum([len(line.split("|")[3].split(" ")) for line in lines]) / len(lines)}
+    [wordsNum(空格切分) max]: {max([len(line.split("|")[3].split(" ")) for line in lines])}
+    [audioDuration avg]: {sum([_get_duration_of_wav(line.split("|")[0]) for line in lines]) / len(lines)}
+    [audioDuration max]: {max([_get_duration_of_wav(line.split("|")[0]) for line in lines])}
+    """)
+
     logging.info(">>> At step_apply_pretrains")
     step_apply_pretrains()
     logging.info(">>> At step_train_sovits")
