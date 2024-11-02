@@ -71,6 +71,9 @@ def model_process(sid, q_inp, q_out, event):
                 target_text={p.text},
                 target_lang={p.tgt_lang},
                 ref_info={p.ref_info},
+                  # audio_fp: {p.ref_info.audio_fp}
+                  # text: {p.ref_info.text}
+                  # lang: {p.ref_info.lang}
                 top_k=1, top_p=0, temperature=0,
                 ref_free={p.ref_free}, no_cut={p.nocut}
                 """)
