@@ -71,10 +71,15 @@ def model_process(sid, q_inp, q_out, event):
                                               ref_info=p.ref_info,
                                               top_k=1, top_p=0, temperature=0,
                                               ref_free=p.ref_free, no_cut=p.nocut)
+            # 后处理之前的音频
+            import soundfile as sf
+            sf.write(f"{sid}_{time.time()}_ori.wav", wav_arr_int16, wav_sr)
             tlist.append(int(time.time()*1000))
+            # 后处理 | (int16,random_sr)-->(int16,16khz)
             wav_arr_float32 = wav_arr_int16.astype(np.float32) / 32768.0
             wav_arr_float32_16khz = librosa.resample(wav_arr_float32, orig_sr=wav_sr, target_sr=16000)
             wav_arr_int16 = (np.clip(wav_arr_float32_16khz, -1.0, 1.0) * 32767).astype(np.int16)
+            sf.write(f"{sid}_{time.time():.0f}_16khz.wav", wav_arr_int16, 16000)
             tlist.append(int(time.time()*1000))
             rsp = {"trace_id": p.trace_id,
                    # "audio_buffer": base64.b64encode(wav_arr.tobytes()).decode(),
@@ -85,8 +90,6 @@ def model_process(sid, q_inp, q_out, event):
             rsp = json.dumps({"code": 0,
                               "msg": "",
                               "result": rsp})
-            tlist.append(int(time.time()*1000))
-            # sf.write(f"output_{time.time():.0f}.wav", wav_arr_int16, wav_sr)
             tlist.append(int(time.time()*1000))
             q_out.put(rsp)
             tlist.append(int(time.time()*1000))
@@ -148,7 +151,7 @@ def load_model():
             res['status'] = 1
             res['msg'] = f"model of '{sid}' is not found and download failed"
             return json.dumps(res)
-
+    logging.info("download finished")
     assert os.path.exists(R.get_sovits_fp(sid))
     assert os.path.exists(R.get_gpt_fp(sid))
 
