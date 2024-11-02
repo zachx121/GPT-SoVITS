@@ -105,7 +105,7 @@ def model_process(sid, q_inp, q_out, event):
             tlist.append(int(time.time()*1000))
             print(f"model time tlist: " + ",".join([f'{b - a}ms' for a, b in zip(tlist[:-1], tlist[1:])]))
         except Exception as e:
-            logging.error(f">>> Error when model.predict. e: {repr(e.message)}")
+            logging.error(f">>> Error when model.predict. e: {repr(e)}")
     # 结束时清理掉模型和显存
     del M
     import gc
@@ -156,12 +156,13 @@ def load_model():
             logging.info(f"- gpt_fp: {R.get_gpt_fp(sid)}")
             utils_audio.download_from_qiniu(R.get_sovits_osskey(sid), R.get_sovits_fp(sid))
             utils_audio.download_from_qiniu(R.get_gpt_osskey(sid), R.get_gpt_fp(sid))
+            logging.info("download finished")
         except Exception as e:
             logging.error(f"error when download '{sid}': {repr(e.message)}")
             res['status'] = 1
             res['msg'] = f"model of '{sid}' is not found and download failed"
             return json.dumps(res)
-    logging.info("download finished")
+
     assert os.path.exists(R.get_sovits_fp(sid))
     assert os.path.exists(R.get_gpt_fp(sid))
 

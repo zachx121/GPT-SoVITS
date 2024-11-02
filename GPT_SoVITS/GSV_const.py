@@ -47,6 +47,7 @@ class InferenceParam:
     use_ref: bool = True  # 推理时是否使用参考音频的情绪，目前还不能置为False必须是True
     ref_suffix: str = D_REF_SUFFIX  # 当可提供多个参考音频时，指定参考音频的后缀
     nocut: bool = True  # 是否不做切分
+    debug: bool = False
 
     # 模型接收的语言参数名和通用的不一样，重新映射
     @property
