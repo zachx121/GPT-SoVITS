@@ -356,13 +356,14 @@ def check_training_status():
     if output == "":
         res = json.dumps({"code": 0,
                           "msg": "success",
-                          "result": json.dumps([])})
+                          "result": []})
     else:
         assert status == 0, f"cmd execution failed. cmd:'{cmd}' output:'{output}'"
-        sid_list = [re.split("\s+", i)[10] for i in output.split("\n")]
+        # sid_list = [re.split("\s+", i)[10] for i in output.split("\n")]
+        sid_list = [re.split(r"\s+", i)[10] for i in output.split("\n") if i]  # 确保只处理非空行
         res = json.dumps({"code": 0,
                           "msg": "success",
-                          "result": json.dumps(sid_list)})
+                          "result": sid_list})
     return res
 
 
