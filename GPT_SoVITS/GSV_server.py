@@ -66,20 +66,30 @@ def model_process(sid, q_inp, q_out, event):
             if p is None:
                 break
             tlist.append(int(time.time() * 1000))
+            if p.debug:
+                logging.info(f"""params as: 
+                target_text={p.text},
+                target_lang={p.tgt_lang},
+                ref_info={p.ref_info},
+                top_k=1, top_p=0, temperature=0,
+                ref_free={p.ref_free}, no_cut={p.nocut}
+                """)
             wav_sr, wav_arr_int16 = M.predict(target_text=p.text,
                                               target_lang=p.tgt_lang,
                                               ref_info=p.ref_info,
                                               top_k=1, top_p=0, temperature=0,
                                               ref_free=p.ref_free, no_cut=p.nocut)
-            # 后处理之前的音频
-            import soundfile as sf
-            sf.write(f"{sid}_{time.time()}_ori.wav", wav_arr_int16, wav_sr)
-            tlist.append(int(time.time()*1000))
+            if p.debug:
+                # 后处理之前的音频
+                import soundfile as sf
+                sf.write(f"{sid}_{time.time():0.f}_ori.wav", wav_arr_int16, wav_sr)
+                tlist.append(int(time.time()*1000))
             # 后处理 | (int16,random_sr)-->(int16,16khz)
             wav_arr_float32 = wav_arr_int16.astype(np.float32) / 32768.0
             wav_arr_float32_16khz = librosa.resample(wav_arr_float32, orig_sr=wav_sr, target_sr=16000)
             wav_arr_int16 = (np.clip(wav_arr_float32_16khz, -1.0, 1.0) * 32767).astype(np.int16)
-            sf.write(f"{sid}_{time.time():.0f}_16khz.wav", wav_arr_int16, 16000)
+            if p.debug:
+                sf.write(f"{sid}_{time.time():.0f}_16khz.wav", wav_arr_int16, 16000)
             tlist.append(int(time.time()*1000))
             rsp = {"trace_id": p.trace_id,
                    # "audio_buffer": base64.b64encode(wav_arr.tobytes()).decode(),
@@ -122,7 +132,7 @@ def load_model():
     info = request.get_json()
     sid = info['speaker']
     sid_num = info['speaker_num']
-    download_overwrite = info.get("download_overwrite", "1")
+    download_overwrite = info.get("download_overwrite", "0")
     logging.debug(f"load_model: {info}")
     if sid in M_dict:
         # 直接全部unload重新加载，减少逻辑
