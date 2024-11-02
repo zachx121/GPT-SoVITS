@@ -17,8 +17,9 @@ def slice(inp,opt_root,threshold,min_length,min_interval,hop_size,max_sil_kept,_
         return "输入路径存在但既不是文件也不是文件夹"
     assert len(input) > 0
     print(">>> All input as follow:\n%s" % '\n'.join(input))
+    sr = 32000  # 长音频采样率
     slicer = Slicer(
-        sr=32000,  # 长音频采样率
+        sr=sr,  # 长音频采样率
         threshold=      int(threshold),  # 音量小于这个值视作静音的备选切割点
         min_length=     int(min_length),  # 每段最小多长，如果第一段太短一直和后面段连起来直到超过这个值
         min_interval=   int(min_interval),  # 最短切割间隔
@@ -31,7 +32,7 @@ def slice(inp,opt_root,threshold,min_length,min_interval,hop_size,max_sil_kept,_
         # print(inp_path)
         try:
             name = os.path.basename(inp_path)
-            audio = load_audio(inp_path, 32000)
+            audio = load_audio(inp_path, sr)
             # print(audio.shape)
             res = slicer.slice(audio)
             print(f"总共切分成: {len(res)} 最长时间: {max([i[0].shape[0] / sr for i in res])}")
@@ -41,7 +42,7 @@ def slice(inp,opt_root,threshold,min_length,min_interval,hop_size,max_sil_kept,_
                 chunk = (chunk / tmp_max * (_max * alpha)) + (1 - alpha) * chunk
                 wavfile.write(
                     "%s/%s_%010d_%010d.wav" % (opt_root, name, start, end),
-                    32000,
+                    sr,
                     # chunk.astype(np.float32),
                     (chunk * 32767).astype(np.int16),
                 )
