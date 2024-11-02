@@ -59,8 +59,8 @@ def model_process(sid, q_inp, q_out, event):
                  speaker=sid)
     event.set()
     while True:
+        p: C.InferenceParam = q_inp.get()
         try:
-            p: C.InferenceParam = q_inp.get()
             tlist = []
             tlist.append(int(time.time()*1000))
             if p is None:
@@ -94,9 +94,7 @@ def model_process(sid, q_inp, q_out, event):
             rsp = {"trace_id": p.trace_id,
                    # "audio_buffer": base64.b64encode(wav_arr.tobytes()).decode(),
                    "audio_buffer_int16": base64.b64encode(wav_arr_int16.tobytes()).decode(),
-                   "sample_rate": 16000,
-                   "code": 0,
-                   "msg": "success."}
+                   "sample_rate": 16000}
             rsp = json.dumps({"code": 0,
                               "msg": "",
                               "result": rsp})
@@ -106,6 +104,14 @@ def model_process(sid, q_inp, q_out, event):
             print(f"model time tlist: " + ",".join([f'{b - a}ms' for a, b in zip(tlist[:-1], tlist[1:])]))
         except Exception as e:
             logging.error(f">>> Error when model.predict. e: {repr(e)}")
+            rsp = {"trace_id": p.trace_id,
+                   "audio_buffer_int16": "",
+                   "sample_rate": 16000}
+            rsp = json.dumps({"code": 1,
+                              "msg": f"Prediction failed, internal err {repr(e)}",
+                              "result": rsp})
+            q_out.put(rsp)
+
     # 结束时清理掉模型和显存
     del M
     import gc
