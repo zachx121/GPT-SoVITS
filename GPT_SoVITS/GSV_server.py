@@ -138,6 +138,9 @@ def load_model():
     # 从OSS上加载模型
     if download_overwrite == "1" or (not (os.path.exists(R.get_sovits_fp(sid)) and os.path.exists(R.get_gpt_fp(sid)))):
         try:
+            logging.info(f"download oss models of '{sid}'")
+            logging.info(f"- sovits_fp: {R.get_sovits_fp(sid)}")
+            logging.info(f"- gpt_fp: {R.get_gpt_fp(sid)}")
             utils_audio.download_from_qiniu(R.get_sovits_osskey(sid), R.get_sovits_fp(sid))
             utils_audio.download_from_qiniu(R.get_gpt_osskey(sid), R.get_gpt_fp(sid))
         except Exception as e:
@@ -145,6 +148,9 @@ def load_model():
             res['status'] = 1
             res['msg'] = f"model of '{sid}' is not found and download failed"
             return json.dumps(res)
+
+    assert os.path.exists(R.get_sovits_fp(sid))
+    assert os.path.exists(R.get_gpt_fp(sid))
 
     # 开启N个子进程加载模型并等待Queue里的数据来处理请求
     q_inp = mp.Queue()
