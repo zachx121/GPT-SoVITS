@@ -82,7 +82,7 @@ def model_process(sid, q_inp, q_out, event):
             if p.debug:
                 # 后处理之前的音频
                 import soundfile as sf
-                sf.write(f"{sid}_{time.time():0.f}_ori.wav", wav_arr_int16, wav_sr)
+                sf.write(f"{sid}_{time.time():.0f}_ori.wav", wav_arr_int16, wav_sr)
                 tlist.append(int(time.time()*1000))
             # 后处理 | (int16,random_sr)-->(int16,16khz)
             wav_arr_float32 = wav_arr_int16.astype(np.float32) / 32768.0
