@@ -236,10 +236,10 @@ def add_default_ref(sid):
 
     cmd1 = f"cp {_audio_fp} {audio_fp}"
     s1, _ = getstatusoutput(cmd1)
-    assert s1 == 0
+    assert s1 == 0, f"execution fail. cmd:'{cmd1}'"
     cmd2 = f"echo '{_lang}|{_text}' > {text_fp}"
     s2, _ = getstatusoutput(cmd2)
-    assert s2 == 0
+    assert s2 == 0, f"execution fail. cmd:'{cmd2}'"
 
 
 @app.route("/add_reference", methods=['POST'])
