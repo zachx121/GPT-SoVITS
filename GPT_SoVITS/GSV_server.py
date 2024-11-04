@@ -235,11 +235,13 @@ def add_default_ref(sid):
     _text = infos[3]
 
     cmd1 = f"cp {_audio_fp} {audio_fp}"
-    s1, _ = getstatusoutput(cmd1)
-    assert s1 == 0, f"execution fail. cmd:'{cmd1}'"
-    cmd2 = f"echo '{_lang}|{_text}' > {text_fp}"
-    s2, _ = getstatusoutput(cmd2)
-    assert s2 == 0, f"execution fail. cmd:'{cmd2}'"
+    s1, o1 = getstatusoutput(cmd1)
+    assert s1 == 0, f"execution fail. [cmd] {cmd1} [output] {o1}"
+    with open(text_fp, "w") as fpw:
+        fpw.write(f"{_lang}|{_text}")
+    # cmd2 = f"echo '{_lang}|{_text}' > {text_fp}"
+    # s2, o2 = getstatusoutput(cmd2)
+    # assert s2 == 0, f"execution fail. [cmd] {cmd2} [output] {o2}"
 
 
 @app.route("/add_reference", methods=['POST'])
