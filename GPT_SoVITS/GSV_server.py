@@ -77,7 +77,7 @@ def model_process(sid, q_inp, q_out, event):
             wav_sr, wav_arr_int16 = M.predict(target_text=p.text,
                                               target_lang=p.tgt_lang,
                                               ref_info=p.ref_info,
-                                              top_k=1, top_p=0, temperature=0,
+                                              top_k=20, top_p=0.8, temperature=0.3,
                                               ref_free=p.ref_free, no_cut=p.nocut)
             if p.debug:
                 # 后处理之前的音频
@@ -143,14 +143,14 @@ def load_model():
     if sid in M_dict:
         # 直接全部unload重新加载，减少逻辑
         # if sid_num == len(M_dict[sid]['process_list']):
-        res['status'] = 1
+        res['code'] = 1
         cur_num = len(M_dict[sid]['process_list'])
         res['msg'] = f"Already Init ({sid}_x{cur_num}). call `unload_model` first."
         return json.dumps(res)
 
     # 假设一个模型占用2.8GB显存
     if get_free_gpu_mem()[0] <= 2800 * (sid_num+1):
-        res['status'] = 1
+        res['code'] = 1
         res['msg'] = 'GPU OOM'
         return json.dumps(res)
 
@@ -165,7 +165,7 @@ def load_model():
             logging.info("download finished")
         except Exception as e:
             logging.error(f"error when download '{sid}': {repr(e.message)}")
-            res['status'] = 1
+            res['code'] = 1
             res['msg'] = f"model of '{sid}' is not found and download failed"
             return json.dumps(res)
 
@@ -431,7 +431,7 @@ def download_model():
     return res
 
 
-# OSS下载完模型后，要用这个检查是否下载成功
+# 检查云上是否已经有有这个模型可以下载
 @app.route("/is_model_oss_available", methods=['POST'])
 def is_model_oss_available():
     """
@@ -451,6 +451,41 @@ def is_model_oss_available():
         # cond2 = os.path.exists(R.get_gpt_fp(sid))
         m_status.append({"model_name": sid, "is_available": cond1 and cond2})
     return json.dumps({"code": 0, "msg": "", "result": m_status})
+
+
+# 提供本地已经下载过的所有模型
+@app.route("/get_all_exist_model", methods=['POST'])
+def get_all_exist_model():
+    all_sid = {*os.listdir(C.GPT_DIR), *os.listdir(C.SOVITS_DIR)}
+    valid_sid = [sid for sid in all_sid
+                 if os.path.exists(R.get_gpt_fp(sid)) and os.path.exists(R.get_sovits_fp(sid))]
+    return json.dumps({"code": 0, "msg": "", "result": valid_sid})
+
+
+# 删除本地的模型
+def rm_local_model():
+    info = request.get_json()
+    speaker_list = info['speaker_list']
+    if "speaker_list" not in info:
+        return json.dumps({"code": 1, "msg": "speaker_list is required", "result": []})
+    m_status = []
+    for sid in speaker_list:
+        try:
+            shutil.rmtree(os.path.join(C.GPT_DIR, sid))
+            shutil.rmtree(os.path.join(C.SOVITS_DIR, sid))
+            m_status.append({"model_name": sid, "is_removed": True})
+        except Exception as e:
+            logging.error(f"Error when rm_local_model on '{sid}', the target_dirs: '{os.path.join(C.GPT_DIR, sid)}' '{os.path.join(C.SOVITS_DIR, sid)}'")
+            m_status.append({"model_name": sid, "is_removed": False})
+    return json.dumps({"code": 0, "msg": "", "result": m_status})
+
+
+# 查看本地文件占用大小
+def get_local_file_storage():
+    status, output = getstatusoutput("du -hs autodl-tmp/* | sort -hr")
+    assert status == 0
+    res = dict([i.split("\t")[::-1] for i in output.split("\n")])
+    return json.dumps({"code": 0, "msg": "", "result": res})
 
 
 if __name__ == '__main__':
