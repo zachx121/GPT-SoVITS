@@ -282,7 +282,7 @@ class GSVModel:
         texts = merge_short_text_in_array(texts, 5)
         audio_opt = []
 
-        # Reference
+        # Reference | 拿到参考音频的语调
         phones1, bert1, prompt = None, None, None
         if not ref_free:
             # >>> format ref_text

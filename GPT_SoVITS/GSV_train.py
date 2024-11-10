@@ -376,12 +376,12 @@ if __name__ == '__main__':
     ASR_FP = os.path.join(ASR_DIR, os.path.basename(DENOISED_DIR)) + ".list"
     EXP_ROOT_DIR = C.LOG_DIR  # "logs"  # 模型训练相关的特征数据路径
     TMP_DIR = os.path.join(EXP_ROOT_DIR, "TEMP_CONFIG")
-    SoVITS_weight_root = os.path.join("SoVITS_weights", sid)  # 模型路径
-    GPT_weight_root = os.path.join("GPT_weights", sid)  # 模型路径
+    SoVITS_weight_root = os.path.join(C.SOVITS_DIR, sid)  # 模型路径
+    GPT_weight_root = os.path.join(C.GPT_DIR, sid)  # 模型路径
 
     logging.info(f">>> Start with ExpName='{sid}', InputDir='{INPUT_DIR}', Language='{LANG}'")
 
-    # 清理上次遗留的数据
+    # 清理上次遗留的数据 | EXP_ROOT_DIR=logs 这个根目录是所有训练的中间数据，历史的也都删掉，只留个最新的看看就行
     for i in [SLICE_DIR, DENOISED_DIR, ASR_DIR, EXP_ROOT_DIR, TMP_DIR, SoVITS_weight_root, GPT_weight_root]:
         if os.path.exists(i):
             shutil.rmtree(i)
