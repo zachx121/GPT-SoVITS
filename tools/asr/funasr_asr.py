@@ -10,6 +10,7 @@ from funasr import AutoModel
 path_asr  = 'tools/asr/models/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch'
 path_vad  = 'tools/asr/models/speech_fsmn_vad_zh-cn-16k-common-pytorch'
 path_punc = 'tools/asr/models/punc_ct-transformer_zh-cn-common-vocab272727-pytorch'
+# 默认路径会存到~/.cache/modelscope/hub
 path_asr  = path_asr  if os.path.exists(path_asr)  else "iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
 path_vad  = path_vad  if os.path.exists(path_vad)  else "iic/speech_fsmn_vad_zh-cn-16k-common-pytorch"
 path_punc = path_punc if os.path.exists(path_punc) else "iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch"
@@ -42,7 +43,7 @@ def execute_asr(input_folder, output_folder, model_size, language):
         try:
             file_path = os.path.join(input_folder, file_name)
             text = model.generate(input=file_path)[0]["text"]
-            output.append(f"{file_path}|{output_file_name}|{language.upper()}|{text}")
+            output.append(f"{file_path}|{output_file_name}|{language.upper()}|{text.strip()}")
         except:
             print(traceback.format_exc())
 

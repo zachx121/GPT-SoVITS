@@ -5,15 +5,22 @@ import sys
 import json
 import yaml
 import utils_audio
+import wave
+import GSV_const as C
+from GSV_const import Route as R
 from subprocess import Popen,getstatusoutput
-logging.basicConfig(format='[%(asctime)s-%(levelname)s-%(funcName)s]: %(message)s',
-                    datefmt="%Y-%m-%d %H:%M:%S",
-                    level=logging.INFO)
 logging.getLogger('modelscope').setLevel(logging.WARNING)
 assert getstatusoutput("ls tools")[0] == 0, "必须在项目根目录下执行不然会有路径问题 e.g. python GPT_SoVITS/GSV_train.py"
 
 # 人声分离
 # cmd = "demucs --two-stems=vocals xx"
+
+def _get_duration_of_wav(file_path):
+    with wave.open(file_path, 'rb') as wav_file:
+        frames = wav_file.getnframes()
+        rate = wav_file.getframerate()
+        duration = frames / rate
+    return duration
 
 
 def get_latest_fp(inp_dir):
@@ -23,31 +30,56 @@ def get_latest_fp(inp_dir):
     return fp
 
 
-# 切片
-def step_slice():
+def step_convert2wav(inp):
+    for name in sorted(list(os.listdir(inp))):
+        if any(name.endswith(i) for i in ['m4a', 'mp3', 'mp4']):
+            # inp = "/root/GPT-SoVITS/voice_sample/ChatTTS_Voice_Clone_4_222rb2j"
+            fp = os.path.join(inp, name)
+            new_fp = os.path.join(inp, os.path.splitext(name)[0] + ".wav")
+            cmd = f"ffmpeg -y -i {fp} {new_fp}"
+            logging.info(f">>> convert2wav: '{cmd}'")
+            s, _ = getstatusoutput(cmd)
+            assert s == 0, f"ffmpeg转换格式时错误, cmd: '{cmd}'"
+
+
+# 切片 min_interval常规还是用100，语速快的用80
+def step_slice(inp_dir, out_dir, min_interval=100):
     threshold = -34  # 音量小于这个值视作静音的备选切割点
     min_length = 4000  # 每段最小多长，如果第一段太短一直和后面段连起来直到超过这个值
-    min_interval = 100  # 最短切割间隔 (说话快的人就可以调小一点，默认是300）
+    # min_interval = 100  # 最短切割间隔 (说话快的人就可以调小一点，默认是300）
     hop_size = 10  # 怎么算音量曲线，越小精度越大计算量越高（不是精度越大效果越好）
     max_sil_kept = 500  # 切完后静音最多留多长
     _max = 0.9  # 归一化后最大值多少
     alpha = 0.25  # 混多少比例归一化后音频进来
-    n_parts = 4  # 并行数
+    n_parts = 1  # 并行数
     ps_slice = []
     if ps_slice == []:
         for i_part in range(n_parts):
             cmd = f"""
                 python 'tools/slice_audio.py' \
-                {INPUT_DIR} \
-                {SLICE_DIR} \
+                {inp_dir} \
+                {out_dir} \
                 {threshold} {min_length} {min_interval} {hop_size} {max_sil_kept} {_max} {alpha} {i_part} {n_parts}
             """.strip()
-            print(cmd)
+            logging.info(f"execute cmd: {cmd}")
             p = Popen(cmd, shell=True)
             ps_slice.append(p)
         for p in ps_slice:
             p.wait()
         ps_slice = []
+
+    # 计算切分后平均音频文件的时长
+    logging.info(">>> Slice finished. ")
+    total_duration, max_duration, num = 0, 0, 0
+    for root, dirs, files in os.walk(out_dir):
+        for file in files:
+            if file.endswith('.wav'):
+                file_path = os.path.join(root, file)
+                duration = _get_duration_of_wav(file_path)
+                max_duration = max(max_duration, duration)
+                total_duration += duration
+                num += 1
+    logging.info(f">>> Slice finished. output wav: [Num]:{num} [AvgDuration]:{total_duration/num:.04f}, [MaxDuration]:{max_duration}")
 
 
 # 降噪
@@ -65,30 +97,41 @@ def step_denoise():
 
 
 # ASR
-def step_asr(lang="ZH"):
+def step_asr(lang="auto"):
     from tools.asr.config import asr_dict
     asr_py = asr_dict["达摩 ASR (中文)"]["path"]
     if lang.upper() != "ZH":
         asr_py = asr_dict["Faster Whisper (多语种)"]["path"]
+    logging.info(f">>> Step_ASR's asr_py is '{asr_py}'")
 
     p_asr = None
     if (p_asr == None):
+        # python tools/asr/fasterwhisper_asr.py -i ./voice_sample/ChatTTS_Voice_Clone_0_Mike_yvmz/denoised -o ./voice_sample/ChatTTS_Voice_Clone_0_Mike_yvmz/asr -s large -l en -p float32
         cmd = f"""python 'tools/asr/{asr_py}' \
-        -i {DENOISED_DIR} \
-        -o {ASR_DIR} \
-        -s large -l zh -p float32 \
+        --input_folder {DENOISED_DIR} \
+        --output_folder {ASR_DIR} \
+        --model_size large-v3-local \
+        --language {lang.lower()} -p float32 \
         """
-        print(cmd)
+        logging.info(f"asr cmd: {cmd}")
         p_asr = Popen(cmd, shell=True)
         p_asr.wait()
         p_asr = None
 
 
+    fp = os.path.join(ASR_DIR, "denoised.list")
+    with open(fp, "r") as fpr:
+        lines = fpr.readlines()
+        total_words = sum([len(l.split("|")[3].split(" ")) for l in lines])
+        longest = max([len(l.split("|")[3].split(" ")) for l in lines])
+        avg_words = total_words/len(lines)
+    logging.info(f">>> ASR Finished. [Lines]: {len(lines)} [AvgWords]: {avg_words:.02f} [LongestSeg]: {longest}")
+
 # 不能直接用webui.py里的open1abc，因为那个函数返回里用了yield
 def step_apply_pretrains():
     logging.info(f">>> Apply Pretrains on '{ASR_FP}'... ")
     inp_text = ASR_FP
-    exp_name = EXP_NAME
+    exp_name = sid
     opt_dir = "%s/%s" % (EXP_ROOT_DIR, exp_name)
     inp_wav_dir = ""  # 直接使用denoised.list里的绝对路径
     gpu_numbers1a = "0-0"
@@ -219,12 +262,12 @@ def step_apply_pretrains():
         logging.info("1c skipped.")
     ps1abc = []
 
-    logging.info(f"Pretrain抽取特征完毕，可检查输出目录 {os.path.abspath(os.path.join('logs', EXP_NAME))}")
+    logging.info(f"Pretrain抽取特征完毕，可检查输出目录 {os.path.abspath(os.path.join('logs', sid))}")
 
 
 def step_train_sovits(total_epoch=8):
     batch_size = 18
-    exp_name = EXP_NAME
+    exp_name = sid
     text_low_lr_rate = 0.4
     if_save_latest = True
     if_save_every_weights = True
@@ -249,14 +292,14 @@ def step_train_sovits(total_epoch=8):
     data["train"]["if_save_every_weights"] = if_save_every_weights
     data["train"]["save_every_epoch"] = save_every_epoch
     data["train"]["gpu_numbers"] = gpu_numbers1Ba
-    data["data"]["exp_dir"] = data["s2_ckpt_dir"] = os.path.join(EXP_ROOT_DIR, EXP_NAME)
+    data["data"]["exp_dir"] = data["s2_ckpt_dir"] = os.path.join(EXP_ROOT_DIR, sid)
     data["save_weight_dir"] = SoVITS_weight_root
     data["name"] = exp_name
-    tmp_config_path = os.path.join(TMP_DIR, f"s2_{EXP_NAME}.json")
+    tmp_config_path = os.path.join(TMP_DIR, f"s2_{sid}.json")
     with open(tmp_config_path, "w") as f: f.write(json.dumps(data))
 
     # logs_s2用来存放Generator和Discriminator模型的
-    os.makedirs(os.path.join(EXP_ROOT_DIR, EXP_NAME, "logs_s2"), exist_ok=True)
+    os.makedirs(os.path.join(EXP_ROOT_DIR, sid, "logs_s2"), exist_ok=True)
     cmd = f'python GPT_SoVITS/s2_train.py --config "{tmp_config_path}"'
     logging.info(cmd)
     p_train_SoVITS = Popen(cmd, shell=True)
@@ -266,7 +309,7 @@ def step_train_sovits(total_epoch=8):
 
 def step_train_gpt(total_epoch=15):
     batch_size = 18
-    exp_name = EXP_NAME
+    exp_name = sid
     if_dpo = False
     if_save_latest = True
     if_save_every_weights = True
@@ -277,7 +320,7 @@ def step_train_gpt(total_epoch=15):
     with open("GPT_SoVITS/configs/s1longer.yaml") as f:
         data = f.read()
         data = yaml.load(data, Loader=yaml.FullLoader)
-    s1_dir = os.path.join(EXP_ROOT_DIR, EXP_NAME)
+    s1_dir = os.path.join(EXP_ROOT_DIR, sid)
     os.makedirs("%s/logs_s1" % (s1_dir), exist_ok=True)
     if (IS_HALF == False):
         data["train"]["precision"] = "32"
@@ -297,7 +340,7 @@ def step_train_gpt(total_epoch=15):
 
     os.environ["_CUDA_VISIBLE_DEVICES"] = gpu_numbers.replace("-", ",")
     os.environ["hz"] = "25hz"
-    tmp_config_path = os.path.join(TMP_DIR, f"s1_{EXP_NAME}.yaml")
+    tmp_config_path = os.path.join(TMP_DIR, f"s1_{sid}.yaml")
     with open(tmp_config_path, "w") as f: f.write(yaml.dump(data, default_flow_style=False))
     # cmd = '"%s" GPT_SoVITS/s1_train.py --config_file "%s" --train_semantic_path "%s/6-name2semantic.tsv" --train_phoneme_path "%s/2-name2text.txt" --output_dir "%s/logs_s1"'%(python_exec,tmp_config_path,s1_dir,s1_dir,s1_dir)
     cmd = f'python GPT_SoVITS/s1_train.py --config_file "{tmp_config_path}" '
@@ -308,63 +351,89 @@ def step_train_gpt(total_epoch=15):
 
 
 if __name__ == '__main__':
-    # python GPT_SoVITS/GSV_train.py ZH XiaoLin ~/AudioProject/voice_sample/XiaoLinShuo
+    # python GPT_SoVITS/GSV_train.py ZH XiaoLin ~/AudioProject/voice_sample/XiaoLinShuo 1
+    # python GPT_SoVITS/GSV_train.py EN ChatTTS_Voice_Clone_0_Kelly /root/autodl-tmp/voice_sample/ChatTTS_Voice_Clone_0_Kelly 1
     if len(sys.argv) == 5:
-        LANG = sys.argv[1]
-        _lang_dict = {"zh_cn": "ZH", "en_us": "EN"}
-        LANG = _lang_dict.get(LANG, "ZH")
-        EXP_NAME = sys.argv[2]
+        LANG = sys.argv[1]  # e.g. EN/ZH
+        sid = sys.argv[2]
         INPUT_DIR = sys.argv[3]
         POST_TO_OSS = sys.argv[4]
     else:
         logging.error(f">>> sys.argv not enough (<LANG> <EXP_NAME> <INPUT_DIR> <POST_TO_OSS>). `{' '.join(sys.argv)}`")
         sys.exit(1)
 
+    logging.basicConfig(format='[%(asctime)s-%(levelname)s-%(funcName)s]: %(message)s',
+                        datefmt="%Y-%m-%d %H:%M:%S",
+                        level=logging.INFO,
+                        force=True,
+                        handlers=[logging.FileHandler(f"{sid}_train.log", mode='w'),
+                                  logging.StreamHandler()])
+
     IS_HALF = False
     SLICE_DIR = os.path.join(INPUT_DIR, 'sliced')
     DENOISED_DIR = os.path.join(INPUT_DIR, 'denoised')
     ASR_DIR = os.path.join(INPUT_DIR, 'asr')
     ASR_FP = os.path.join(ASR_DIR, os.path.basename(DENOISED_DIR)) + ".list"
-    EXP_ROOT_DIR = "logs"  # 模型训练相关的特征数据路径
+    EXP_ROOT_DIR = C.LOG_DIR  # "logs"  # 模型训练相关的特征数据路径
     TMP_DIR = os.path.join(EXP_ROOT_DIR, "TEMP_CONFIG")
-    SoVITS_weight_root = os.path.join("SoVITS_weights", EXP_NAME)  # 模型路径
-    GPT_weight_root = os.path.join("GPT_weights", EXP_NAME)  # 模型路径
+    SoVITS_weight_root = os.path.join(C.SOVITS_DIR, sid)  # 模型路径
+    GPT_weight_root = os.path.join(C.GPT_DIR, sid)  # 模型路径
 
-    logging.info(f">>> Start with ExpName='{EXP_NAME}', InputDir='{INPUT_DIR}', Language='{LANG}'")
-    os.makedirs(TMP_DIR, exist_ok=True)
-    os.makedirs(SoVITS_weight_root, exist_ok=True)
-    os.makedirs(GPT_weight_root, exist_ok=True)
-    if os.path.exists(os.path.join(EXP_ROOT_DIR, EXP_NAME)):
-        shutil.rmtree(os.path.join(EXP_ROOT_DIR, EXP_NAME))
+    logging.info(f">>> Start with ExpName='{sid}', InputDir='{INPUT_DIR}', Language='{LANG}'")
 
-    step_slice()
+    # 清理上次遗留的数据 | EXP_ROOT_DIR=logs 这个根目录是所有训练的中间数据，历史的也都删掉，只留个最新的看看就行
+    for i in [SLICE_DIR, DENOISED_DIR, ASR_DIR, EXP_ROOT_DIR, TMP_DIR, SoVITS_weight_root, GPT_weight_root]:
+        if os.path.exists(i):
+            shutil.rmtree(i)
+        os.makedirs(i, exist_ok=True)
+
+    logging.info(">>> At step_convert2wav")
+    step_convert2wav(INPUT_DIR)
+    logging.info(">>> At step_slice")
+    step_slice(INPUT_DIR, SLICE_DIR, min_interval=80 if LANG == "EN" else 100)
+    logging.info(">>> At step_denoise")
     step_denoise()
+    logging.info(">>> At step_asr")
     step_asr(LANG)
+
+    with open(os.path.join(ASR_DIR, "denoised.list"), "r") as fpr:
+        lines = fpr.readlines()
+    logging.info(f""">>> 整体数据处理结果
+    [total lines]: {len(lines)}
+    [wordsNum(空格切分) avg]: {sum([len(line.split("|")[3].split(" ")) for line in lines]) / len(lines)}
+    [wordsNum(空格切分) max]: {max([len(line.split("|")[3].split(" ")) for line in lines])}
+    [audioDuration avg]: {sum([_get_duration_of_wav(line.split("|")[0]) for line in lines]) / len(lines)}
+    [audioDuration max]: {max([_get_duration_of_wav(line.split("|")[0]) for line in lines])}
+    """)
+
+    logging.info(">>> At step_apply_pretrains")
     step_apply_pretrains()
+    logging.info(">>> At step_train_sovits")
     step_train_sovits()
+    logging.info(">>> At step_train_gpt")
     step_train_gpt()
 
     # todo 模型目录xx_root应该按EXPNAME进行区分？
-    sovits_fp = os.path.join(SoVITS_weight_root, EXP_NAME + ".latest.pth")
-    gpt_fp = os.path.join(GPT_weight_root, EXP_NAME + ".latest.ckpt")
+    sovits_fp = os.path.join(SoVITS_weight_root, sid + ".latest.pth")
+    gpt_fp = os.path.join(GPT_weight_root, sid + ".latest.ckpt")
     os.rename(os.path.join(SoVITS_weight_root, get_latest_fp(SoVITS_weight_root)), sovits_fp)
     os.rename(os.path.join(GPT_weight_root, get_latest_fp(GPT_weight_root)), gpt_fp)
 
     if POST_TO_OSS == "1":
         logging.info(">>> Uploading sovits model to qiniu.")
-        url = utils_audio.post2qiniu(sovits_fp, f"{EXP_NAME}_sovits")
+        url = utils_audio.post2qiniu(sovits_fp, R.get_sovits_osskey(sid))
         logging.info(f">>> url as: '{url}'")
         logging.info(">>> Uploading gpt model to qiniu.")
-        url = utils_audio.post2qiniu(gpt_fp, f"{EXP_NAME}_gpt")
+        url = utils_audio.post2qiniu(gpt_fp, R.get_gpt_osskey(sid))
         logging.info(f">>> url as: '{url}'")
 
     # Show models path
     models_fp = []
     for i in os.listdir(SoVITS_weight_root):
-        if EXP_NAME in i:
+        if sid in i:
             models_fp.append(os.path.abspath(os.path.join(SoVITS_weight_root, i)))
     for i in os.listdir(GPT_weight_root):
-        if EXP_NAME in i:
+        if sid in i:
             models_fp.append(os.path.abspath(os.path.join(GPT_weight_root, i)))
     logging.info(">>> Models path:\n%s" % "\n".join(models_fp))
     logging.info("<<< Training finished.")

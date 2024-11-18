@@ -1,7 +1,7 @@
 import sys,os
 
 import torch
-
+from GPT_SoVITS.GSV_const import LOG_DIR
 # 推理用的指定模型
 sovits_path = ""
 gpt_path = ""
@@ -15,7 +15,7 @@ bert_path = "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large"
 pretrained_sovits_path = "GPT_SoVITS/pretrained_models/s2G488k.pth"
 pretrained_gpt_path = "GPT_SoVITS/pretrained_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt"
 
-exp_root = "logs"
+exp_root = LOG_DIR
 python_exec = sys.executable or "python"
 if torch.cuda.is_available():
     infer_device = "cuda"
@@ -55,6 +55,7 @@ class Config:
         self.pretrained_gpt_path = pretrained_gpt_path
 
         self.exp_root = exp_root
+        os.makedirs(self.exp_root, exist_ok=True)
         self.python_exec = python_exec
         self.infer_device = infer_device
 

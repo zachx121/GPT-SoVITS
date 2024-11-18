@@ -32,6 +32,8 @@ import torch
 import time
 import numpy as np
 import os
+os.environ['TQDM_DISABLE'] = 'True'
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 import logging
 import base64
 import json
@@ -39,105 +41,76 @@ import shutil
 from urllib.parse import unquote
 from subprocess import getstatusoutput, check_output
 from flask import Flask, request
-import soundfile as sf
 logging.basicConfig(format='[%(asctime)s-%(levelname)s-CLIENT]: %(message)s',
                     datefmt="%Y-%m-%d %H:%M:%S",
                     level=logging.INFO)
-from GSV_model import GSVModel,ReferenceInfo
+from GSV_model import GSVModel, ReferenceInfo
+import GSV_const as C
+from GSV_const import Route as R
 import multiprocessing as mp
 import utils_audio
 
 app = Flask(__name__, static_folder="./static_folder", static_url_path="")
-LANG_MAP = {"zh_cn": "ZH", "en_us": "EN"}
-D_REF_SUFFIX = "default"
-VOICE_SAMPLE_DIR = os.path.abspath(os.path.expanduser("./voice_sample/"))
-GPT_DIR = os.path.abspath(os.path.expanduser("./GPT_weights/"))
-SOVITS_DIR = os.path.abspath(os.path.expanduser("./SoVITS_weights/"))
-logging.info(f"VOICE_SAMPLE_DIR: {VOICE_SAMPLE_DIR}")
-logging.info(f"GPT_DIR: {GPT_DIR}")
-logging.info(f"SOVITS_DIR: {SOVITS_DIR}")
-
-
-def get_sovits_fp(sid):
-    return os.path.join(SOVITS_DIR, sid, sid + ".latest.pth")
-
-
-def get_gpt_fp(sid):
-    return os.path.join(GPT_DIR, sid, sid + ".latest.ckpt")
-
-
-class Param:
-    trace_id: str = None
-    speaker: str = None  # 角色音
-    text: str = None  # 要合成的文本
-    lang: str = None  # 合成音频的语言 (e.g. zh_cn/en_us)
-    use_ref: bool = True  # 推理时是否使用参考音频的情绪，目前还不能置为False必须是True
-    ref_suffix: str = D_REF_SUFFIX  # 当可提供多个参考音频时，指定参考音频的后缀
-    nocut: bool = True  # 是否不做切分
-
-    # 模型接收的语言参数名和通用的不一样，重新映射
-    @property
-    def tgt_lang(self):
-        # eng/cmn/eng/deu/fra/ita/spa
-        # {"JP": "all_ja", "ZH": "all_zh", "EN": "en", "ZH_EN": "zh", "JP_EN": "ja", "AUTO": "auto"}
-        # lang = self.lang if self.lang in ["JP", "ZH", "EN", "ZH_EN", "JP_EN"] else "AUTO"
-        lang = LANG_MAP.get(self.lang, "AUTO")
-        return lang
-
-    @property
-    def ref_info(self):
-        if self.ref_free:
-            return ReferenceInfo(audio_fp="", text="", lang="")
-        ref_dir = os.path.join(VOICE_SAMPLE_DIR, self.speaker)
-        # ~/tmp/ref_audio.wav
-        audio_fp = os.path.join(ref_dir, f'ref_audio_{self.ref_suffix}.wav')
-        # ~/tmp/ref_text.txt 里面必须是竖线分割的<语言>|<文本> e.g."ZH|语音的具体文本内容。"
-        text_fp = os.path.join(ref_dir, f'ref_text_{self.ref_suffix}.txt')
-        assert os.path.exists(audio_fp)
-        assert os.path.exists(text_fp)
-        with open(text_fp, 'r', encoding='utf - 8') as fr:
-            lang, text = fr.readlines()[0].split("|")
-        # lang, text = getstatusoutput(f"cat '{text_fp}'")[1].encode().split("|")
-        return ReferenceInfo(audio_fp=audio_fp, text=text, lang=lang)
-
-    @property
-    def ref_free(self):
-        return False if self.use_ref else True
-
-    def __init__(self, info_dict):
-        for key in self.__annotations__.keys():
-            if key in info_dict:
-                setattr(self, key, info_dict[key])
 
 
 def model_process(sid, q_inp, q_out, event):
-    M = GSVModel(sovits_model_fp=get_sovits_fp(sid),
-                 gpt_model_fp=get_gpt_fp(sid),
+    M = GSVModel(sovits_model_fp=R.get_sovits_fp(sid),
+                 gpt_model_fp=R.get_gpt_fp(sid),
                  speaker=sid)
     event.set()
     while True:
-        p:Param = q_inp.get()
-        if p is None:
-            break
-        wav_sr, wav_arr_int16 = M.predict(target_text=p.text,
-                                          target_lang=p.tgt_lang,
-                                          ref_info=p.ref_info,
-                                          top_k=1, top_p=0, temperature=0,
-                                          ref_free=p.ref_free, no_cut=p.nocut)
-        wav_arr_float32 = wav_arr_int16.astype(np.float32) / 32768.0
-        wav_arr_float32_16khz = librosa.resample(wav_arr_float32, orig_sr=wav_sr, target_sr=16000)
-        wav_arr_int16 = (np.clip(wav_arr_float32_16khz, -1.0, 1.0) * 32767).astype(np.int16)
-        rsp = {"trace_id": p.trace_id,
-               # "audio_buffer": base64.b64encode(wav_arr.tobytes()).decode(),
-               "audio_buffer_int16": base64.b64encode(wav_arr_int16.tobytes()).decode(),
-               "sample_rate": 16000,
-               "status": 0,
-               "msg": "success."}
-        rsp = json.dumps({"status": 0,
-                          "msg": "",
-                          "result": rsp})
-        sf.write(f"output_{time.time():.0f}.wav", wav_arr_int16, wav_sr)
-        q_out.put(rsp)
+        p: C.InferenceParam = q_inp.get()
+        try:
+            tlist = []
+            tlist.append(int(time.time()*1000))
+            if p is None:
+                break
+            tlist.append(int(time.time() * 1000))
+            if p.debug:
+                logging.info(f"""params as: 
+                target_text={p.text},
+                target_lang={p.tgt_lang},
+                ref_info={p.ref_info}, # ReferenceInfo(audio_fp={p.ref_info.audio_fp},text={p.ref_info.text},lang={p.ref_info.lang}) 
+                top_k=1, top_p=0, temperature=0,
+                ref_free={p.ref_free}, no_cut={p.nocut}
+                """)
+            wav_sr, wav_arr_int16 = M.predict(target_text=p.text,
+                                              target_lang=p.tgt_lang,
+                                              ref_info=p.ref_info,
+                                              top_k=20, top_p=0.8, temperature=0.3,
+                                              ref_free=p.ref_free, no_cut=p.nocut)
+            if p.debug:
+                # 后处理之前的音频
+                import soundfile as sf
+                sf.write(f"{sid}_{time.time():.0f}_ori.wav", wav_arr_int16, wav_sr)
+                tlist.append(int(time.time()*1000))
+            # 后处理 | (int16,random_sr)-->(int16,16khz)
+            wav_arr_float32 = wav_arr_int16.astype(np.float32) / 32768.0
+            wav_arr_float32_16khz = librosa.resample(wav_arr_float32, orig_sr=wav_sr, target_sr=16000)
+            wav_arr_int16 = (np.clip(wav_arr_float32_16khz, -1.0, 1.0) * 32767).astype(np.int16)
+            if p.debug:
+                sf.write(f"{sid}_{time.time():.0f}_16khz.wav", wav_arr_int16, 16000)
+            tlist.append(int(time.time()*1000))
+            rsp = {"trace_id": p.trace_id,
+                   # "audio_buffer": base64.b64encode(wav_arr.tobytes()).decode(),
+                   "audio_buffer_int16": base64.b64encode(wav_arr_int16.tobytes()).decode(),
+                   "sample_rate": 16000}
+            rsp = json.dumps({"code": 0,
+                              "msg": "",
+                              "result": rsp})
+            tlist.append(int(time.time()*1000))
+            q_out.put(rsp)
+            tlist.append(int(time.time()*1000))
+            print(f"model time tlist: " + ",".join([f'{b - a}ms' for a, b in zip(tlist[:-1], tlist[1:])]))
+        except Exception as e:
+            logging.error(f">>> Error when model.predict. e: {repr(e)}")
+            rsp = {"trace_id": p.trace_id,
+                   "audio_buffer_int16": "",
+                   "sample_rate": 16000}
+            rsp = json.dumps({"code": 1,
+                              "msg": f"Prediction failed, internal err {repr(e)}",
+                              "result": rsp})
+            q_out.put(rsp)
 
     # 结束时清理掉模型和显存
     del M
@@ -161,41 +134,43 @@ def load_model():
     - speaker:str
     - speaker_num:int
     """
-    res = {"status": 0, "msg": "", "result": ""}
+    res = {"code": 0, "msg": "", "result": ""}
     info = request.get_json()
     sid = info['speaker']
     sid_num = info['speaker_num']
-    download_overwrite = info.get("download_overwrite", "1")
-    logging.info(info)
+    download_overwrite = info.get("download_overwrite", "0")
+    logging.debug(f"load_model: {info}")
     if sid in M_dict:
         # 直接全部unload重新加载，减少逻辑
         # if sid_num == len(M_dict[sid]['process_list']):
-        res['status'] = 1
+        res['code'] = 1
         cur_num = len(M_dict[sid]['process_list'])
         res['msg'] = f"Already Init ({sid}_x{cur_num}). call `unload_model` first."
         return json.dumps(res)
 
     # 假设一个模型占用2.8GB显存
     if get_free_gpu_mem()[0] <= 2800 * (sid_num+1):
-        res['status'] = 1
+        res['code'] = 1
         res['msg'] = 'GPU OOM'
         return json.dumps(res)
 
-    if download_overwrite == "1" or (not (os.path.exists(get_sovits_fp(sid)) and os.path.exists(get_gpt_fp(sid)))):
+    # 从OSS上加载模型
+    if download_overwrite == "1" or (not (os.path.exists(R.get_sovits_fp(sid)) and os.path.exists(R.get_gpt_fp(sid)))):
         try:
-            utils_audio.download_from_qiniu(sid+"_sovits", get_sovits_fp(sid))
-            utils_audio.download_from_qiniu(sid+"_gpt", get_gpt_fp(sid))
+            logging.info(f"download oss models of '{sid}'")
+            logging.info(f"- sovits_fp: {R.get_sovits_fp(sid)}")
+            logging.info(f"- gpt_fp: {R.get_gpt_fp(sid)}")
+            utils_audio.download_from_qiniu(R.get_sovits_osskey(sid), R.get_sovits_fp(sid))
+            utils_audio.download_from_qiniu(R.get_gpt_osskey(sid), R.get_gpt_fp(sid))
+            logging.info("download finished")
         except Exception as e:
             logging.error(f"error when download '{sid}': {repr(e.message)}")
-            res['status'] = 1
+            res['code'] = 1
             res['msg'] = f"model of '{sid}' is not found and download failed"
             return json.dumps(res)
 
-    ref_audio_fp = os.path.join(VOICE_SAMPLE_DIR, sid, f'ref_audio_{D_REF_SUFFIX}.wav')
-    ref_text_fp = os.path.join(VOICE_SAMPLE_DIR, sid, f'ref_text_{D_REF_SUFFIX}.txt')
-    if not (os.path.exists(ref_audio_fp) and os.path.exists(ref_text_fp)):
-        logging.info(">>> reference is not ready, init a default one from training data.")
-        add_default_ref(sid)
+    assert os.path.exists(R.get_sovits_fp(sid))
+    assert os.path.exists(R.get_gpt_fp(sid))
 
     # 开启N个子进程加载模型并等待Queue里的数据来处理请求
     q_inp = mp.Queue()
@@ -213,6 +188,7 @@ def load_model():
         pass
     M_dict[sid] = {"q_inp": q_inp, "q_out": q_out, "process_list": process_list}
     res['msg'] = "Init Success"
+    logging.info(f"<<< Init of '{sid}' finished.")
     return json.dumps(res)
 
 
@@ -221,7 +197,7 @@ def unload_model():
     info = request.get_json()
     sid = info["speaker"]
     if sid not in M_dict:
-        res = {"status": 1,
+        res = {"code": 1,
                "msg": f"sid('{sid}') not loaded yet",
                "result": ""}
         return res
@@ -233,18 +209,17 @@ def unload_model():
         p.join()
     # 清理掉字典里记录的kv
     del M_dict[sid]
-    res = {"status": 0,
+    res = {"code": 0,
            "msg": "Model Unloaded",
            "result": ""}
     return json.dumps(res)
 
 
 def add_default_ref(sid):
-    asr_fp = os.path.join(VOICE_SAMPLE_DIR, sid, "asr", "denoised.list")
-    suffix = D_REF_SUFFIX
-    os.makedirs(os.path.join(VOICE_SAMPLE_DIR, sid), exist_ok=True)
-    audio_fp = os.path.join(VOICE_SAMPLE_DIR, sid, f'ref_audio_{suffix}.wav')
-    text_fp = os.path.join(VOICE_SAMPLE_DIR, sid, f'ref_text_{suffix}.txt')
+    asr_fp = os.path.join(C.VOICE_SAMPLE_DIR, sid, "asr", "denoised.list")
+    os.makedirs(os.path.join(C.VOICE_SAMPLE_DIR, sid), exist_ok=True)
+    audio_fp = R.get_ref_audio_fp(sid, C.D_REF_SUFFIX)
+    text_fp = R.get_ref_text_fp(sid, C.D_REF_SUFFIX)
 
     assert os.path.exists(asr_fp)
     with open(asr_fp, "r", encoding='utf-8') as fr:
@@ -255,16 +230,18 @@ def add_default_ref(sid):
     infos = line.split("|")
     _audio_fp = infos[0]
     _lang = infos[2]
-    _lang_map = {v: k for k, v in LANG_MAP.items()}
+    _lang_map = {v: k for k, v in C.LANG_MAP.items()}
     _lang = _lang_map[_lang]
     _text = infos[3]
 
     cmd1 = f"cp {_audio_fp} {audio_fp}"
-    s1, _ = getstatusoutput(cmd1)
-    assert s1 == 0
-    cmd2 = f"echo '{_lang}|{_text}' > {text_fp}"
-    s2, _ = getstatusoutput(cmd2)
-    assert s2 == 0
+    s1, o1 = getstatusoutput(cmd1)
+    assert s1 == 0, f"execution fail. [cmd] {cmd1} [output] {o1}"
+    with open(text_fp, "w") as fpw:
+        fpw.write(f"{_lang}|{_text}")
+    # cmd2 = f"echo '{_lang}|{_text}' > {text_fp}"
+    # s2, o2 = getstatusoutput(cmd2)
+    # assert s2 == 0, f"execution fail. [cmd] {cmd2} [output] {o2}"
 
 
 @app.route("/add_reference", methods=['POST'])
@@ -277,24 +254,22 @@ def add_reference():
     - ref_audio_url:str optional
     - ref_text_url:str optional
     """
-    if request.method != "POST":
-        return "Only Support Post", 400
     info = request.get_json()
     logging.debug(info)
     sid = info['speaker']
-    suffix = info.get("ref_suffix", D_REF_SUFFIX)
-    os.makedirs(os.path.join(VOICE_SAMPLE_DIR, sid), exist_ok=True)
-    audio_fp = os.path.join(VOICE_SAMPLE_DIR, sid, f'ref_audio_{suffix}.wav')
-    text_fp = os.path.join(VOICE_SAMPLE_DIR, sid, f'ref_text_{suffix}.txt')
+    suffix = info.get("ref_suffix", C.D_REF_SUFFIX)
+    os.makedirs(os.path.join(C.VOICE_SAMPLE_DIR, sid), exist_ok=True)
+    audio_fp = R.get_ref_audio_fp(sid, C.D_REF_SUFFIX)
+    text_fp = R.get_ref_text_fp(sid, C.D_REF_SUFFIX)
 
     # 如果没有用默认的就说明有指定的音频，否则用训练集里的一句话
-    if suffix != D_REF_SUFFIX:
+    if suffix != C.D_REF_SUFFIX:
         logging.info(f">>> will use **ASSIGNED** audio&text with suffix: '{suffix}'")
         cmd = f"wget \"{info['ref_audio_url']}\" -O {audio_fp}"
         logging.debug(f"will execute `{cmd}`")
         status, output = getstatusoutput(cmd)
         if status != 0:
-            res = json.dumps({"status": 1,
+            res = json.dumps({"code": 1,
                               "msg": f"Reference Audio Download Wrong",
                               "result": ""})
             return res
@@ -303,17 +278,17 @@ def add_reference():
         logging.debug(f"will execute `{cmd}`")
         status, output = getstatusoutput(cmd)
         if status != 0:
-            res = json.dumps({"status": 1,
+            res = json.dumps({"code": 1,
                               "msg": f"Reference Text Download Wrong",
                               "result": ""})
             return res
 
-        res = json.dumps({"status": 0,
+        res = json.dumps({"code": 0,
                           "msg": "Reference added.",
                           "result": ""})
     else:
         add_default_ref(sid)
-        res = json.dumps({"status": 0,
+        res = json.dumps({"code": 0,
                           "msg": "Automatic Reference added.",
                           "result": ""})
     return res
@@ -325,19 +300,29 @@ def inference():
     http params:
     - 以Param类的成员变量为准
     """
-    if request.method != "POST":
-        return "Only Support Post", 400
-    if len(M_dict) == 0:
-        return "No available Model", 400
-
+    tlist = []
+    tlist.append(int(time.time()*1000))
     info = request.get_json()
-    logging.debug(info)
-    p = Param(info)
+    logging.warning(f"inference at {time.time():.03f}s info:{info}")
+    p = C.InferenceParam(info)
+    # 检查speaker是否已经加载
     if p.speaker not in M_dict:
-        return f"inference使用的角色音({p.speaker})未被加载。已加载角色音: {M_dict.keys()}", 400
+        return json.dumps({"code": 1,
+                           "msg": f"inference使用的角色音({p.speaker})未被加载。已加载角色音: {M_dict.keys()}",
+                           "result": ""})
+    # 检查是否设置过默认的ref
+    ref_audio_fp = R.get_ref_audio_fp(p.speaker, C.D_REF_SUFFIX)
+    ref_text_fp = R.get_ref_text_fp(p.speaker, C.D_REF_SUFFIX)
+    if not (os.path.exists(ref_audio_fp) and os.path.exists(ref_text_fp)):
+        logging.warning(f">>> reference as '{p.ref_suffix}' is not ready, init a default one from training data.")
+        add_default_ref(p.speaker)
+    tlist.append(int(time.time()*1000))
     M_dict[p.speaker]["q_inp"].put(p)
+    tlist.append(int(time.time()*1000))
     result = M_dict[p.speaker]["q_out"].get()
-    return result, 200
+    tlist.append(int(time.time()*1000))
+    print(f"server api tlist: " + ",".join([f'{b - a}ms' for a, b in zip(tlist[:-1], tlist[1:])]))
+    return result
 
 
 @app.route("/train_model", methods=['POST'])
@@ -350,11 +335,11 @@ def train_model():
     """
     info = request.get_json()
     logging.debug(info)
-    speaker = info['speaker']
+    sid = info['speaker']
     lang = info['lang']
     data_urls = info['data_urls']
     post2oss = "1"
-    data_dir = os.path.join(VOICE_SAMPLE_DIR, speaker)
+    data_dir = os.path.join(C.VOICE_SAMPLE_DIR, sid)
     if os.path.exists(data_dir):
         shutil.rmtree(data_dir)
     os.makedirs(data_dir)
@@ -368,28 +353,26 @@ def train_model():
         if status != 0:
             logging.error(f"    Download fail. url is {url}")
     if len(os.listdir(data_dir)) == 0:
-        res = json.dumps({"status": 1,
+        res = json.dumps({"code": 1,
                           "msg": "All Audio url failed to download.",
                           "result": ""})
-        return res, 200
+        return res
     logging.info(f">>> Start Model Training.")
     # nohup python GPT_SoVITS/GSV_train.py zh_cn ChatTTS_Voice_Clone_4_222rb2j voice_sample/ChatTTS_Voice_Clone_4_222rb2j > ChatTTS_Voice_Clone_4_222rb2j.train 2>&1 &
-    # python GPT_SoVITS/GSV_train.py zh_cn test_silang1636 voice_sample/test_silang1636 > test_silang1636.train
-    cmd = f"nohup python GPT_SoVITS/GSV_train.py {lang} {speaker} {data_dir} {post2oss} > {speaker}.train 2>&1 &"
+    # python GPT_SoVITS/GSV_train.py en_us ChatTTS_Voice_Clone_0_Mike_yvmz voice_sample/ChatTTS_Voice_Clone_0_Mike_yvmz 1 > ChatTTS_Voice_Clone_0_Mike_yvmz.train
+    cmd = f"nohup python GPT_SoVITS/GSV_train.py {C.LANG_MAP[lang]} {sid} {data_dir} {post2oss} > {sid}.train 2>&1 &"
     logging.info(f"    cmd is {cmd}")
     status, output = getstatusoutput(cmd)
     if status != 0:
         logging.error(f"    Model training failed. error:\n{output}")
-        res = json.dumps({"status": 1,
+        res = json.dumps({"code": 1,
                           "msg": "Model Training Failed",
                           "result": ""})
-        st_code = 200
     else:
-        res = json.dumps({"status": 0,
+        res = json.dumps({"code": 0,
                           "msg": "Model Training Started.",
                           "result": ""})
-        st_code = 200
-    return res, st_code
+    return res
 
 
 @app.route("/check_training_status", methods=['POST'])
@@ -399,15 +382,16 @@ def check_training_status():
     status, output = getstatusoutput(cmd)
     # 注意没有训练进程时，status是1，output是空串
     if output == "":
-        res = json.dumps({"status": 0,
+        res = json.dumps({"code": 0,
                           "msg": "success",
-                          "result": json.dumps([])})
+                          "result": []})
     else:
         assert status == 0, f"cmd execution failed. cmd:'{cmd}' output:'{output}'"
-        sid_list = [re.split("\s+", i)[10] for i in output.split("\n")]
-        res = json.dumps({"status": 0,
+        # sid_list = [re.split("\s+", i)[10] for i in output.split("\n")]
+        sid_list = [re.split(r"\s+", i)[10] for i in output.split("\n") if i]  # 确保只处理非空行
+        res = json.dumps({"code": 0,
                           "msg": "success",
-                          "result": json.dumps(sid_list)})
+                          "result": sid_list})
     return res
 
 
@@ -421,10 +405,10 @@ def model_status():
         res.append({"model_name": k, "model_num": size})
 
     logging.debug(str(res))
-    res = json.dumps({"status": 0,
+    res = json.dumps({"code": 0,
                       "msg": "",
                       "result": res})
-    return res, 200
+    return res
 
 
 @app.route("/download_model", methods=['POST'])
@@ -434,22 +418,22 @@ def download_model():
     res = []
     for sid in sid_list:
         try:
-            utils_audio.download_from_qiniu(sid+"_sovits", get_sovits_fp(sid))
-            utils_audio.download_from_qiniu(sid+"_gpt", get_gpt_fp(sid))
+            utils_audio.download_from_qiniu(sid+"_sovits", R.get_sovits_fp(sid))
+            utils_audio.download_from_qiniu(sid+"_gpt", R.get_gpt_fp(sid))
             res.append({"model_name": sid, "download_success": True})
         except Exception as e:
             logging.error(f"error when download '{sid}': {repr(e.message)}")
             res.append({"model_name": sid, "download_success": False})
 
-    res = json.dumps({"status": 0,
+    res = json.dumps({"code": 0,
                       "msg": "",
                       "result": res})
-    return res, 200
+    return res
 
 
-# OSS下载完模型后，要用这个检查是否下载成功
-@app.route("/is_model_available", methods=['POST'])
-def is_model_available():
+# 检查云上是否已经有有这个模型可以下载
+@app.route("/is_model_oss_available", methods=['POST'])
+def is_model_oss_available():
     """
     模型训练是否完成
     http params:
@@ -457,20 +441,59 @@ def is_model_available():
     """
     info = request.get_json()
     speaker_list = info['speaker_list']
-    status = []
-    for s in speaker_list:
-        cond1 = os.path.exists(get_sovits_fp(s))
-        cond2 = os.path.exists(get_gpt_fp(s))
-        status.append({"model_name": s, "is_available": cond1 and cond2})
-    return json.dumps(status), 200
+    if "speaker_list" not in info:
+        return json.dumps({"code": 1, "msg": "speaker_list is required", "result": []})
+    m_status = []
+    for sid in speaker_list:
+        cond1 = utils_audio.check_on_qiniu(R.get_sovits_osskey(sid))
+        cond2 = utils_audio.check_on_qiniu(R.get_gpt_osskey(sid))
+        # cond1 = os.path.exists(R.get_sovits_fp(sid))
+        # cond2 = os.path.exists(R.get_gpt_fp(sid))
+        m_status.append({"model_name": sid, "is_available": cond1 and cond2})
+    return json.dumps({"code": 0, "msg": "", "result": m_status})
+
+
+# 提供本地已经下载过的所有模型
+@app.route("/get_all_exist_model", methods=['POST'])
+def get_all_exist_model():
+    all_sid = {*os.listdir(C.GPT_DIR), *os.listdir(C.SOVITS_DIR)}
+    valid_sid = [sid for sid in all_sid
+                 if os.path.exists(R.get_gpt_fp(sid)) and os.path.exists(R.get_sovits_fp(sid))]
+    return json.dumps({"code": 0, "msg": "", "result": valid_sid})
+
+
+# 删除本地的模型
+def rm_local_model():
+    info = request.get_json()
+    speaker_list = info['speaker_list']
+    if "speaker_list" not in info:
+        return json.dumps({"code": 1, "msg": "speaker_list is required", "result": []})
+    m_status = []
+    for sid in speaker_list:
+        try:
+            shutil.rmtree(os.path.join(C.GPT_DIR, sid))
+            shutil.rmtree(os.path.join(C.SOVITS_DIR, sid))
+            m_status.append({"model_name": sid, "is_removed": True})
+        except Exception as e:
+            logging.error(f"Error when rm_local_model on '{sid}', the target_dirs: '{os.path.join(C.GPT_DIR, sid)}' '{os.path.join(C.SOVITS_DIR, sid)}'")
+            m_status.append({"model_name": sid, "is_removed": False})
+    return json.dumps({"code": 0, "msg": "", "result": m_status})
+
+
+# 查看本地文件占用大小
+def get_local_file_storage():
+    status, output = getstatusoutput("du -hs autodl-tmp/* | sort -hr")
+    assert status == 0
+    res = dict([i.split("\t")[::-1] for i in output.split("\n")])
+    return json.dumps({"code": 0, "msg": "", "result": res})
 
 
 if __name__ == '__main__':
-    logging.info("Preparing")
     mp.set_start_method("spawn")
-    os.makedirs(VOICE_SAMPLE_DIR, exist_ok=True)
-    os.makedirs(GPT_DIR, exist_ok=True)
-    os.makedirs(SOVITS_DIR, exist_ok=True)
+    logging.info("Preparing")
+    os.makedirs(C.VOICE_SAMPLE_DIR, exist_ok=True)
+    os.makedirs(C.GPT_DIR, exist_ok=True)
+    os.makedirs(C.SOVITS_DIR, exist_ok=True)
     M_dict = {}
 
     logging.info("Start Server")

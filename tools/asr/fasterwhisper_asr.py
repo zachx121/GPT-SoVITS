@@ -1,4 +1,5 @@
 import argparse
+import logging
 import os
 import traceback
 
@@ -35,11 +36,13 @@ language_code_list = [
     "auto"]
 
 def execute_asr(input_folder, output_folder, model_size, language, precision):
-    if '-local' in model_size:
-        model_size = model_size[:-6]
-        model_path = f'tools/asr/models/faster-whisper-{model_size}'
-    else:
-        model_path = model_size
+    default_fp = f'tools/asr/models/faster-whisper-{model_size}'
+    model_path = default_fp if os.path.exists(default_fp) else model_size
+    # if '-local' in model_size:
+    #     model_size = model_size[:-6]
+    #     model_path = f'tools/asr/models/faster-whisper-{model_size}'
+    # else:
+    #     model_path = model_size
     if language == 'auto':
         language = None #不设置语种由模型自动输出概率最高的语种
     print("loading faster whisper model:",model_size,model_path)
@@ -67,7 +70,7 @@ def execute_asr(input_folder, output_folder, model_size, language, precision):
             text = ''
 
             if info.language == "zh":
-                print("检测为中文文本, 转 FunASR 处理")
+                logging.info("检测到文本为中文, 转 FunASR 处理再次处理")
                 if("only_asr"not in globals()):
                     from tools.asr.funasr_asr import \
                         only_asr  # #如果用英文就不需要导入下载模型
@@ -76,7 +79,7 @@ def execute_asr(input_folder, output_folder, model_size, language, precision):
             if text == '':
                 for segment in segments:
                     text += segment.text
-            output.append(f"{file_path}|{output_file_name}|{info.language.upper()}|{text}")
+            output.append(f"{file_path}|{output_file_name}|{info.language.upper()}|{text.strip()}")
         except:
             print(traceback.format_exc())
     
@@ -95,8 +98,7 @@ if __name__ == '__main__':
                         help="Path to the folder containing WAV files.")
     parser.add_argument("-o", "--output_folder", type=str, required=True, 
                         help="Output folder to store transcriptions.")
-    parser.add_argument("-s", "--model_size", type=str, default='large-v3', 
-                        choices=check_fw_local_models(),
+    parser.add_argument("-s", "--model_size", type=str, default='large-v3-local',
                         help="Model Size of Faster Whisper")
     parser.add_argument("-l", "--language", type=str, default='ja',
                         choices=language_code_list,
