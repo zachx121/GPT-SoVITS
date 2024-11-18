@@ -19,7 +19,7 @@ headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
 
 
 def train(sid, data_urls, lang):
-    assert lang in {"zh_cn", "en_us"}
+    assert lang in {"zh_cn", "en_us", "auto"}
     logging.info(">>> start train")
     rsp = requests.post(url + "train_model",
                         data=json.dumps({"speaker": sid,
