@@ -1,7 +1,7 @@
 import os
 from GSV_model import ReferenceInfo
 
-LANG_MAP = {"zh_cn": "ZH", "en_us": "EN"}
+LANG_MAP = {"zh_cn": "ZH", "en_us": "EN", "auto": "AUTO"}
 D_REF_SUFFIX = "default"
 # LOG_DIR = "logs"
 # VOICE_SAMPLE_DIR = os.path.abspath(os.path.expanduser("./voice_sample/"))
