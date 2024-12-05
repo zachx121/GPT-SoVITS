@@ -91,8 +91,11 @@ def inference(sid,
 sid = 'test_silang1636'
 sid, lang, sid_data_urls = "fuhang_1", "zh_cn", ["https://public.yisounda.com/fuhang.m4a?e=1729698462&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:c6qaV6h2qIyUX03u4gJQILb8Ipo="]
 sid, lang, sid_data_urls = "ChatTTS_Voice_Clone_0_Mike_komd", "en_us", ["http://resource.aisounda.cn/model%2Fclone%2Fself%2F97ba7a9c-7602-4cdb-994d-0f286fa4b99d.m4a?e=1730046614&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:mOgJ45UzLaRZiJbN0cA9CQLZMTs="]
+
+
+# sid, lang, sid_data_urls = "ChatTTS_Voice_Clone_0_Olivia", "en_us", [""]
 # train(sid, sid_data_urls, lang=lang)
-assert is_model_oss_available(sid)
+# assert is_model_oss_available(sid)
 # sys.exit(0)
 load(sid)
 model_status(sid)
@@ -100,8 +103,11 @@ model_status(sid)
 sta = time.time()
 # add_ref(sid)  # 不需要了，load会自动指定默认ref
 # inference(sid, text=f"this is a general sentence of number", trace_id=f"debug_")
-inference(sid, lang="zh_cn", text=f"你好啊，我的朋友。很高兴认识你！你们在做什么事情呢？", trace_id=f"debug_")
-inference(sid, lang="en_us", text=f"hi there. how is your day? I'm glad to meet you", trace_id=f"debug_")
+# inference(sid, lang="zh_cn", text=f"你好啊，我的朋友。很高兴认识你！你们在做什么事情呢？", trace_id=f"debug_")
+inference(sid, lang="en_us", text=f"hi there. how is your day? ", trace_id=f"debug_")
+inference(sid, lang="en_us", text=f"I'm glad to meet you", trace_id=f"debug_")
+inference(sid, lang="en_us", text=f"Hello, everyone! How's it going?", trace_id=f"debug_")
+inference(sid, lang="en_us", text=f"It's your new friend, Lucy, here. It's so nice to see you all, and I hope you have a fantastic shopping journey with me.", trace_id=f"debug_")
 end = time.time()
 print(f"duration: {end-sta:.02f}s")
 sys.exit(0)
