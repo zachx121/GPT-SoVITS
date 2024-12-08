@@ -164,7 +164,7 @@ def load_model():
             utils_audio.download_from_qiniu(R.get_gpt_osskey(sid), R.get_gpt_fp(sid))
             logging.info("download finished")
         except Exception as e:
-            logging.error(f"error when download '{sid}': {repr(e.message)}")
+            logging.error(f"error when download '{sid}': {repr(e)}")
             res['code'] = 1
             res['msg'] = f"model of '{sid}' is not found and download failed"
             return json.dumps(res)
@@ -418,11 +418,11 @@ def download_model():
     res = []
     for sid in sid_list:
         try:
-            utils_audio.download_from_qiniu(sid+"_sovits", R.get_sovits_fp(sid))
-            utils_audio.download_from_qiniu(sid+"_gpt", R.get_gpt_fp(sid))
+            utils_audio.download_from_qiniu(R.get_sovits_osskey(sid), R.get_sovits_fp(sid))
+            utils_audio.download_from_qiniu(R.get_gpt_osskey(sid), R.get_gpt_fp(sid))
             res.append({"model_name": sid, "download_success": True})
         except Exception as e:
-            logging.error(f"error when download '{sid}': {repr(e.message)}")
+            logging.error(f"error when download '{sid}': {repr(e)}")
             res.append({"model_name": sid, "download_success": False})
 
     res = json.dumps({"code": 0,
