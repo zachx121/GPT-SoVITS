@@ -215,8 +215,7 @@ def unload_model():
     return json.dumps(res)
 
 
-def add_default_ref(sid):
-    asr_fp = os.path.join(C.VOICE_SAMPLE_DIR, sid, "asr", "denoised.list")
+def add_default_ref(sid, tryOSS=True):
     os.makedirs(os.path.join(C.VOICE_SAMPLE_DIR, sid), exist_ok=True)
     audio_fp = R.get_ref_audio_fp(sid, C.D_REF_SUFFIX)
     text_fp = R.get_ref_text_fp(sid, C.D_REF_SUFFIX)
@@ -357,11 +356,12 @@ def train_model():
     for url in data_urls:
         logging.info(f">>> Downloading Sample from {url}")
         filename = os.path.basename(unquote(url).split("?")[0])
-        cmd = f"wget \"{url}\" -O {os.path.join(data_dir,filename)}"
+        cmd = f"wget --no-check-certificate -O {os.path.join(data_dir,filename)} \"{url}\""
         logging.debug(cmd)
         status, output = getstatusoutput(cmd)
         if status != 0:
             logging.error(f"    Download fail. url is {url}")
+            raise Exception(f"Download fail. url is {url}")
     if len(os.listdir(data_dir)) == 0:
         res = json.dumps({"code": 1,
                           "msg": "All Audio url failed to download.",
