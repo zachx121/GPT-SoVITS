@@ -88,6 +88,7 @@ import os
 class QiniuConst:
     access_key = "izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP"
     secret_key = "pOhSAES6tocA3PzNF2fS_bnShTLUX5TEA1-tUmJY"
+    auth = Auth(access_key, secret_key)
     bucket_domain = "https://public.yisounda.com"
     bucket_name = 'sounda-public'
     # 这个是音频数据存放的bucket对应的domain和name
@@ -108,6 +109,16 @@ def post2qiniu(localfile, key):
     # print(f"wget -O res '{private_url}'")  # >>> 下载路径
     private_url = Auth(QiniuConst.access_key, QiniuConst.secret_key).private_download_url('%s/%s' % (QiniuConst.bucket_domain, key), expires=3600)
     return private_url
+
+
+def list_qiniu(bucket_name=None, prefix=None):
+    bucket = BucketManager(QiniuConst.auth)
+    bkt_name = QiniuConst.bucket_name if bucket_name is None else bucket_name
+    ret, eof, info = bucket.list(bkt_name, prefix=prefix)
+    return [i['key'] for i in ret['items']]
+
+# list_qiniu(QiniuConst.bucket_name, "models")  # 各角色音的模型文件
+# list_qiniu(QiniuConst.bucket_name_data, "model")  # 各角色音训练用的音频数据
 
 
 def check_on_qiniu(key, bucket_name=None):

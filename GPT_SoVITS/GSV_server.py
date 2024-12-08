@@ -220,6 +220,16 @@ def add_default_ref(sid):
     os.makedirs(os.path.join(C.VOICE_SAMPLE_DIR, sid), exist_ok=True)
     audio_fp = R.get_ref_audio_fp(sid, C.D_REF_SUFFIX)
     text_fp = R.get_ref_text_fp(sid, C.D_REF_SUFFIX)
+    if tryOSS:
+        logging.info("downloading default_ref from OSS")
+        logging.info(f"- ref_audio: {R.get_ref_audio_osskey(sid)} --> {audio_fp}")
+        logging.info(f"- ref_text: {R.get_ref_text_osskey(sid)} --> {text_fp}")
+        utils_audio.download_from_qiniu(R.get_ref_audio_osskey(sid), audio_fp)
+        utils_audio.download_from_qiniu(R.get_ref_text_osskey(sid), text_fp)
+        logging.info("download finished")
+        return None
+
+    asr_fp = os.path.join(C.VOICE_SAMPLE_DIR, sid, "asr", "denoised.list")
 
     assert os.path.exists(asr_fp)
     with open(asr_fp, "r", encoding='utf-8') as fr:
