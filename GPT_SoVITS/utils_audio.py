@@ -130,9 +130,13 @@ def check_on_qiniu(key, bucket_name=None):
     return key in [i['key'] for i in ret['items']]
 
 
-def get_url_from_qiniu(key):
-    private_url = Auth(QiniuConst.access_key, QiniuConst.secret_key).private_download_url('%s/%s' % (QiniuConst.bucket_domain, key), expires=3600)
+def get_url_from_qiniu(key, bucket_domain=None):
+    bkt_domain = QiniuConst.bucket_domain if bucket_domain is None else bucket_domain
+    private_url = QiniuConst.auth.private_download_url('%s/%s' % (bkt_domain, key), expires=3600)
     return private_url
+
+# get_url_from_qiniu("models/fuhang_1/fuhang_1_gpt")
+# get_url_from_qiniu("model/clone/self/f81d8c8f-493d-40af-b4c5-226ef82c5d7c.m4a", QiniuConst.bucket_domain_data)
 
 
 def download_from_qiniu(key, fp):

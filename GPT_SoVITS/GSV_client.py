@@ -1,4 +1,5 @@
 import sys
+import uuid
 
 import requests
 import json
@@ -12,8 +13,12 @@ import logging
 logging.basicConfig(format='[%(asctime)s-%(levelname)s-%(funcName)s]: %(message)s',
                     datefmt="%Y-%m-%d %H:%M:%S",
                     level=logging.DEBUG)
+import utils_audio
+from utils_audio import QiniuConst, list_qiniu
+
 
 url = "https://u212392-8449-c474cb97.beijinga.seetacloud.com/"
+url = "https://u212392-a63c-b4538f80.beijinga.seetacloud.com/"  # 加斜杠
 
 headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
 
@@ -87,6 +92,54 @@ def inference(sid,
         rsp_audio_arr = np.frombuffer(base64.b64decode(rsp.json()['result']['audio_buffer_int16']), dtype=np.int16)
         scipy.io.wavfile.write(f"./rsp_{time.time():.0f}.wav", 16000, rsp_audio_arr)
 
+
+# MIke:model/clone/self/e9a0715a-e6af-4397-a9a9-980ae0c023a0.m4a
+# Zoe:model/clone/self/d25ecfb3-9fd7-438b-81b9-4207e2d766ca.m4a
+# data_urls = [utils_audio.get_url_from_qiniu("model/clone/self/f81d8c8f-493d-40af-b4c5-226ef82c5d7c.m4a", QiniuConst.bucket_domain_data)]
+# train("debug_female_1", data_urls, "en_us")
+# data_urls = utils_audio.get_url_from_qiniu("model/clone/self/e91d9402-1e0a-40a2-9b36-4e30a078d9ba.m4a", QiniuConst.bucket_domain_data)
+# train("debug_male_1", data_urls, lang="en_us")
+# sys.exit(0)
+# 批量并行请求
+def bulk_request():
+    load("debug_female_1")
+    from requests_futures.sessions import FuturesSession
+    import functools
+    import datetime
+    def callback(ret, traceid, sta_time, *args, **kwargs):
+        try:
+            rsp = ret.result()
+            print(rsp.status_code)
+            rsp_audio_arr = np.frombuffer(base64.b64decode(rsp.json()['result']['audio_buffer_int16']),
+                                          dtype=np.int16)
+            scipy.io.wavfile.write(f"./rsp_{traceid}.wav", 16000, rsp_audio_arr)
+            now = datetime.datetime.now()
+            now_time = now.strftime("%Y-%m-%d %H:%M:%S")
+            now_ts = now.timestamp()
+            sta_ts = datetime.datetime.strptime(sta_time, "%Y-%m-%d %H:%M:%S").timestamp()
+            print(f"[Now]:{now_time} [Duration]:{int(now_ts - sta_ts)} [request_traceid]:{traceid} [response_traceid]:{rsp.json()['result']['trace_id']}")
+            print(f"[Audio Saved At]:'./rsp_{traceid}.wav'")
+        except Exception as e:
+            print("Error:", e)
+
+    session = FuturesSession()
+    sta_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"Now Sending Requests... at {sta_time}")
+    for idx,(sid,lang,text) in enumerate([
+                              ["debug_female_1", "en_us", "hi there, how is your day? I'm really excited to have this conversation with you, hope you can enjoy this too, okay?"],
+                              ["debug_female_1", "zh_cn", "你好，我是付航"],
+                              ["debug_female_1", "en_us", "Hello, I'm Trump"],
+                              ["debug_female_1", "zh_cn", "你好，我是川普"]
+                          ]):
+        logging.info(">>> start inference")
+        future = session.post(url + "inference",
+                              data=json.dumps({"trace_id": f"debug_{idx}","speaker":sid, "text":text, "lang":lang}),
+                              headers=headers)
+        func = functools.partial(callback, traceid=f"debug_{idx}", sta_time=sta_time)
+        future.add_done_callback(func)
+
+bulk_request()
+sys.exit(0)
 
 sid = 'test_silang1636'
 sid, lang, sid_data_urls = "fuhang_1", "zh_cn", ["https://public.yisounda.com/fuhang.m4a?e=1729698462&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:c6qaV6h2qIyUX03u4gJQILb8Ipo="]

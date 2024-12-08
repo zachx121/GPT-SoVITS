@@ -49,17 +49,18 @@ import GSV_const as C
 from GSV_const import Route as R
 import multiprocessing as mp
 import utils_audio
+import uuid
 
 app = Flask(__name__, static_folder="./static_folder", static_url_path="")
 
 
-def model_process(sid, q_inp, q_out, event):
+def model_process(sid, q_inp, dict_out, load_event):
     M = GSVModel(sovits_model_fp=R.get_sovits_fp(sid),
                  gpt_model_fp=R.get_gpt_fp(sid),
                  speaker=sid)
-    event.set()
+    load_event.set()
     while True:
-        p: C.InferenceParam = q_inp.get()
+        p, _i_traceid = q_inp.get()
         try:
             tlist = []
             tlist.append(int(time.time()*1000))
@@ -99,7 +100,8 @@ def model_process(sid, q_inp, q_out, event):
                               "msg": "",
                               "result": rsp})
             tlist.append(int(time.time()*1000))
-            q_out.put(rsp)
+            # q_out.put(rsp)
+            dict_out[_i_traceid] = rsp
             tlist.append(int(time.time()*1000))
             print(f"model time tlist: " + ",".join([f'{b - a}ms' for a, b in zip(tlist[:-1], tlist[1:])]))
         except Exception as e:
@@ -110,7 +112,8 @@ def model_process(sid, q_inp, q_out, event):
             rsp = json.dumps({"code": 1,
                               "msg": f"Prediction failed, internal err {repr(e)}",
                               "result": rsp})
-            q_out.put(rsp)
+            # q_out.put(rsp)
+            dict_out[_i_traceid] = rsp
 
     # 结束时清理掉模型和显存
     del M
@@ -174,19 +177,19 @@ def load_model():
 
     # 开启N个子进程加载模型并等待Queue里的数据来处理请求
     q_inp = mp.Queue()
-    q_out = mp.Queue()
+    dict_out = mp.Manager().dict()
     process_list = []
     _load_events = []
     for _ in range(sid_num):
-        event = mp.Event()
-        p = mp.Process(target=model_process, args=(sid, q_inp, q_out, event))
+        load_event = mp.Event()
+        p = mp.Process(target=model_process, args=(sid, q_inp, dict_out, load_event))
         process_list.append(p)
-        _load_events.append(event)
+        _load_events.append(load_event)
         p.start()
     # 阻塞直到所有模型加载完毕
     while not all([event.is_set() for event in _load_events]):
         pass
-    M_dict[sid] = {"q_inp": q_inp, "q_out": q_out, "process_list": process_list}
+    M_dict[sid] = {"q_inp": q_inp, "dict_out": dict_out, "process_list": process_list}
     res['msg'] = "Init Success"
     logging.info(f"<<< Init of '{sid}' finished.")
     return json.dumps(res)
@@ -326,9 +329,19 @@ def inference():
         logging.warning(f">>> reference as '{p.ref_suffix}' is not ready, init a default one from training data.")
         add_default_ref(p.speaker)
     tlist.append(int(time.time()*1000))
-    M_dict[p.speaker]["q_inp"].put(p)
+    _i_traceid = str(uuid.uuid4())  # 外面没传traceid，自己做一个
+    M_dict[p.speaker]["q_inp"].put((p, _i_traceid))
     tlist.append(int(time.time()*1000))
-    result = M_dict[p.speaker]["q_out"].get()
+    sta, predict_timeout = time.time(), 10
+    while _i_traceid not in M_dict[p.speaker]["dict_out"]:
+        if time.time() - sta >= predict_timeout:
+            break
+    if _i_traceid not in M_dict[p.speaker]["dict_out"]:
+        result = json.dumps({"code": 1,
+                              "msg": f"Prediction failed, internal timeout(i.e. >={predict_timeout})",
+                              "result": {}})
+    else:
+        result = M_dict[p.speaker]["dict_out"][_i_traceid]
     tlist.append(int(time.time()*1000))
     print(f"server api tlist: " + ",".join([f'{b - a}ms' for a, b in zip(tlist[:-1], tlist[1:])]))
     return result
@@ -507,7 +520,7 @@ if __name__ == '__main__':
     M_dict = {}
 
     logging.info("Start Server")
-    app.run(host="0.0.0.0", port=6006)
+    app.run(host="0.0.0.0", port=6006, threaded=True, processes=False)
     # 一个模型2.8GB, 3090一共24GB
     # gunicorn -w 4 -b 0.0.0.0:6006 GPT_SoVITS.GSV_server:app
 
