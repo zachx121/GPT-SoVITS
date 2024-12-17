@@ -80,6 +80,12 @@ class InferenceParam:
 
     def __init__(self, info_dict):
         for key in self.__annotations__.keys():
-            if key in info_dict:
+            if key in info_dict and info_dict[key] is not None:
                 setattr(self, key, info_dict[key])
+                
+    def __repr__(self):
+        return (f"InferenceParam(trace_id={self.trace_id}, speaker={self.speaker}, "
+                f"text={self.text}, lang={self.lang}, use_ref={self.use_ref}, "
+                f"ref_suffix={self.ref_suffix}, nocut={self.nocut}, debug={self.debug})")
 
+    

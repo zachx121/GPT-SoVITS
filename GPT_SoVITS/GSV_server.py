@@ -49,22 +49,137 @@ import GSV_const as C
 from GSV_const import Route as R
 import multiprocessing as mp
 import utils_audio
+import socket
+import pika
+import queue
+import traceback  # 导入 traceback 模块
 
 app = Flask(__name__, static_folder="./static_folder", static_url_path="")
 
 
-def model_process(sid, q_inp, q_out, event):
+def get_machine_id():
+    """获取机器的主机名，清理并返回。"""
+    machine_id = None
+    try:
+        # 尝试通过 socket 获取主机名
+        machine_id = socket.gethostname()
+        
+        # 如果获取失败，尝试通过环境变量获取
+        if not machine_id:
+            machine_id = os.getenv("HOSTNAME")  # Linux/Docker
+        if not machine_id:
+            machine_id = os.getenv("COMPUTERNAME")  # Windows
+
+        # 清理主机名：只保留字母、数字和横线
+        if machine_id:
+            machine_id = re.sub(r'[^a-zA-Z0-9\-]', '', machine_id).lower()
+
+        logging.info("Machine ID (hostname): %s", machine_id)
+        return machine_id
+
+    except Exception as e:
+        logging.error("Error getting machine ID: %s", repr(e))
+        return None
+    
+def connect_to_rabbitmq():
+    # RabbitMQ 连接信息
+    rabbitmq_config = {
+        "address": "120.24.144.127",
+        "ports": [5672, 5673, 5674],
+        "username": "admin",
+        "password": "aibeeo",
+        "virtual_host": "test"
+    }
+
+    # 连接到 RabbitMQ
+    credentials = pika.PlainCredentials(rabbitmq_config["username"], rabbitmq_config["password"])
+    parameters = pika.ConnectionParameters(
+        host=rabbitmq_config["address"],
+        port=rabbitmq_config["ports"][0],  # 默认使用第一个端口
+        virtual_host=rabbitmq_config["virtual_host"],
+        credentials=credentials
+    )
+
+    try:
+        connection = pika.BlockingConnection(parameters)
+        channel = connection.channel()
+        logging.info("Connected to RabbitMQ successfully.")
+        # 全局消息属性
+        global PROPERTIES
+        PROPERTIES = pika.BasicProperties(content_type='application/json')  # 设置 content_type 为 JSON
+        return connection, channel
+    except Exception as e:
+        logging.error(f"Failed to connect to RabbitMQ: {repr(e)}")
+        return None, None
+    
+def model_process(sid: str, event, q_inp):
+    # 获取机器的 hostname
+    machine_id = get_machine_id()
+    if not machine_id:
+        logging.error("Failed to retrieve machine ID.")
+        return
+
+    request_queue_name = f"inference_request_queue_{machine_id}_{sid}"
+    result_queue_name = f"inference_result_queue_{machine_id}"
+
+    # 连接到 RabbitMQ
+    connection, channel = connect_to_rabbitmq()
+    if not connection or not channel:
+        return  # 如果连接失败，退出函数
+
+    # 确保请求和结果队列存在
+    channel.queue_declare(queue=request_queue_name, durable=True)
+    channel.queue_declare(queue=result_queue_name, durable=True)
+
     M = GSVModel(sovits_model_fp=R.get_sovits_fp(sid),
                  gpt_model_fp=R.get_gpt_fp(sid),
                  speaker=sid)
     event.set()
+    
     while True:
-        p: C.InferenceParam = q_inp.get()
+      
+        # 进程是否关闭逻辑
+        try:
+            # 非阻塞地从队列获取参数
+            p = q_inp.get_nowait()  # 立即返回，不阻塞
+        except queue.Empty:
+            p = None  # 如果队列为空，设置 p 为 None
+
+        # 检查 p 是否为关闭信号
+        if p == "STOP":  # 使用字符串 "STOP" 作为关闭信号
+            logging.info(f"Received shutdown signal for SID: {sid}. Exiting process.")
+            break  # 接收到关闭信号，退出循环
+            
+            
+        # 从 RabbitMQ 获取消息
+        method_frame, header_frame, body = channel.basic_get(queue=request_queue_name, auto_ack=True)
+        if body is None:
+            time.sleep(0.1)  # 如果没有消息，休眠一段时间
+            continue  # 如果没有消息，等待下一次
+        # 尝试解析 JSON
+          # 尝试解析 JSON
+        try:
+            # 将字节串解码为字符串
+            body_str = body.decode('utf-8')
+            # 将字符串解析为字典
+            info_dict = json.loads(body_str)
+            # 创建 InferenceParam 实例
+            p = C.InferenceParam(info_dict)
+            # 处理 InferenceParam 实例
+            logging.info("InferenceParam 实例创建成功: %s", p)  # 使用 logging.info 打印 p
+            
+            
+        except json.JSONDecodeError as e:
+            logging.error(f"JSON 解析错误: {e}")
+            logging.error(traceback.format_exc())  # 打印完整的堆栈跟踪
+            continue;
+        except Exception as e:
+            logging.error(f"创建 InferenceParam 实例时出错: {e}")
+            logging.error(traceback.format_exc())  # 打印完整的堆栈跟踪
+            continue  # 继续下一个循环
+
         try:
             tlist = []
-            tlist.append(int(time.time()*1000))
-            if p is None:
-                break
             tlist.append(int(time.time() * 1000))
             if p.debug:
                 logging.info(f"""params as: 
@@ -94,14 +209,16 @@ def model_process(sid, q_inp, q_out, event):
             rsp = {"trace_id": p.trace_id,
                    # "audio_buffer": base64.b64encode(wav_arr.tobytes()).decode(),
                    "audio_buffer_int16": base64.b64encode(wav_arr_int16.tobytes()).decode(),
-                   "sample_rate": 16000}
+                   "sample_rate": 16000,
+                   "audio_text": p.text
+                  }
             rsp = json.dumps({"code": 0,
                               "msg": "",
                               "result": rsp})
+
+            channel.basic_publish(exchange='', routing_key=result_queue_name, body=rsp,  properties=PROPERTIES)
             tlist.append(int(time.time()*1000))
-            q_out.put(rsp)
-            tlist.append(int(time.time()*1000))
-            print(f"model time tlist: " + ",".join([f'{b - a}ms' for a, b in zip(tlist[:-1], tlist[1:])]))
+
         except Exception as e:
             logging.error(f">>> Error when model.predict. e: {repr(e)}")
             rsp = {"trace_id": p.trace_id,
@@ -110,13 +227,81 @@ def model_process(sid, q_inp, q_out, event):
             rsp = json.dumps({"code": 1,
                               "msg": f"Prediction failed, internal err {repr(e)}",
                               "result": rsp})
-            q_out.put(rsp)
+            channel.basic_publish(exchange='', routing_key=result_queue_name, body=rsp,  properties=PROPERTIES)
 
-    # 结束时清理掉模型和显存
+    # 清理资源
+    channel.close()
+    connection.close()
     del M
     import gc
     gc.collect()
     torch.cuda.empty_cache()
+
+
+# def model_process(sid, q_inp, q_out, event):
+#     M = GSVModel(sovits_model_fp=R.get_sovits_fp(sid),
+#                  gpt_model_fp=R.get_gpt_fp(sid),
+#                  speaker=sid)
+#     event.set()
+#     while True:
+#         p: C.InferenceParam = q_inp.get()
+#         try:
+#             tlist = []
+#             tlist.append(int(time.time()*1000))
+#             if p is None:
+#                 break
+#             tlist.append(int(time.time() * 1000))
+#             if p.debug:
+#                 logging.info(f"""params as: 
+#                 target_text={p.text},
+#                 target_lang={p.tgt_lang},
+#                 ref_info={p.ref_info}, # ReferenceInfo(audio_fp={p.ref_info.audio_fp},text={p.ref_info.text},lang={p.ref_info.lang}) 
+#                 top_k=1, top_p=0, temperature=0,
+#                 ref_free={p.ref_free}, no_cut={p.nocut}
+#                 """)
+#             wav_sr, wav_arr_int16 = M.predict(target_text=p.text,
+#                                               target_lang=p.tgt_lang,
+#                                               ref_info=p.ref_info,
+#                                               top_k=20, top_p=0.8, temperature=0.3,
+#                                               ref_free=p.ref_free, no_cut=p.nocut)
+#             if p.debug:
+#                 # 后处理之前的音频
+#                 import soundfile as sf
+#                 sf.write(f"{sid}_{time.time():.0f}_ori.wav", wav_arr_int16, wav_sr)
+#                 tlist.append(int(time.time()*1000))
+#             # 后处理 | (int16,random_sr)-->(int16,16khz)
+#             wav_arr_float32 = wav_arr_int16.astype(np.float32) / 32768.0
+#             wav_arr_float32_16khz = librosa.resample(wav_arr_float32, orig_sr=wav_sr, target_sr=16000)
+#             wav_arr_int16 = (np.clip(wav_arr_float32_16khz, -1.0, 1.0) * 32767).astype(np.int16)
+#             if p.debug:
+#                 sf.write(f"{sid}_{time.time():.0f}_16khz.wav", wav_arr_int16, 16000)
+#             tlist.append(int(time.time()*1000))
+#             rsp = {"trace_id": p.trace_id,
+#                    # "audio_buffer": base64.b64encode(wav_arr.tobytes()).decode(),
+#                    "audio_buffer_int16": base64.b64encode(wav_arr_int16.tobytes()).decode(),
+#                    "sample_rate": 16000}
+#             rsp = json.dumps({"code": 0,
+#                               "msg": "",
+#                               "result": rsp})
+#             tlist.append(int(time.time()*1000))
+#             q_out.put(rsp)
+#             tlist.append(int(time.time()*1000))
+#             print(f"model time tlist: " + ",".join([f'{b - a}ms' for a, b in zip(tlist[:-1], tlist[1:])]))
+        # except Exception as e:
+        #     logging.error(f">>> Error when model.predict. e: {repr(e)}")
+        #     rsp = {"trace_id": p.trace_id,
+        #            "audio_buffer_int16": "",
+        #            "sample_rate": 16000}
+        #     rsp = json.dumps({"code": 1,
+        #                       "msg": f"Prediction failed, internal err {repr(e)}",
+        #                       "result": rsp})
+#             q_out.put(rsp)
+
+#     # 结束时清理掉模型和显存
+#     del M
+#     import gc
+#     gc.collect()
+#     torch.cuda.empty_cache() 
 
 
 # 返回所有GPU的内存空余量，是一个list
@@ -125,7 +310,6 @@ def get_free_gpu_mem():
     memory_free_info = check_output(command.split()).decode('ascii').split('\n')[:-1][1:]
     memory_free_values = [int(x.split()[0]) for i, x in enumerate(memory_free_info)]
     return memory_free_values
-
 
 @app.route("/load_model", methods=['POST'])
 def load_model():
@@ -140,16 +324,16 @@ def load_model():
     sid_num = info['speaker_num']
     download_overwrite = info.get("download_overwrite", "0")
     logging.debug(f"load_model: {info}")
+
     if sid in M_dict:
         # 直接全部unload重新加载，减少逻辑
-        # if sid_num == len(M_dict[sid]['process_list']):
-        res['code'] = 1
         cur_num = len(M_dict[sid]['process_list'])
+        res['code'] = 1
         res['msg'] = f"Already Init ({sid}_x{cur_num}). call `unload_model` first."
         return json.dumps(res)
 
     # 假设一个模型占用2.8GB显存
-    if get_free_gpu_mem()[0] <= 2800 * (sid_num+1):
+    if get_free_gpu_mem()[0] <= 2800 * (sid_num + 1):
         res['code'] = 1
         res['msg'] = 'GPU OOM'
         return json.dumps(res)
@@ -164,7 +348,7 @@ def load_model():
             utils_audio.download_from_qiniu(R.get_gpt_osskey(sid), R.get_gpt_fp(sid))
             logging.info("download finished")
         except Exception as e:
-            logging.error(f"error when download '{sid}': {repr(e.message)}")
+            logging.error(f"error when download '{sid}': {repr(e)}")
             res['code'] = 1
             res['msg'] = f"model of '{sid}' is not found and download failed"
             return json.dumps(res)
@@ -172,24 +356,94 @@ def load_model():
     assert os.path.exists(R.get_sovits_fp(sid))
     assert os.path.exists(R.get_gpt_fp(sid))
 
-    # 开启N个子进程加载模型并等待Queue里的数据来处理请求
+    # 开启N个子进程加载模型
+    # 保留inp用于发布关闭信息
     q_inp = mp.Queue()
-    q_out = mp.Queue()
     process_list = []
     _load_events = []
     for _ in range(sid_num):
         event = mp.Event()
-        p = mp.Process(target=model_process, args=(sid, q_inp, q_out, event))
+        p = mp.Process(target=model_process, args=(sid, event,q_inp))  # 移除 q_out
         process_list.append(p)
         _load_events.append(event)
         p.start()
+
     # 阻塞直到所有模型加载完毕
     while not all([event.is_set() for event in _load_events]):
         pass
-    M_dict[sid] = {"q_inp": q_inp, "q_out": q_out, "process_list": process_list}
+
+    M_dict[sid] = {"q_inp": q_inp, "process_list": process_list}
     res['msg'] = "Init Success"
     logging.info(f"<<< Init of '{sid}' finished.")
     return json.dumps(res)
+
+
+
+# @app.route("/load_model", methods=['POST'])
+# def load_model():
+#     """
+#     http params:
+#     - speaker:str
+#     - speaker_num:int
+#     """
+#     res = {"code": 0, "msg": "", "result": ""}
+#     info = request.get_json()
+#     sid = info['speaker']
+#     sid_num = info['speaker_num']
+#     download_overwrite = info.get("download_overwrite", "0")
+#     logging.debug(f"load_model: {info}")
+#     if sid in M_dict:
+#         # 直接全部unload重新加载，减少逻辑
+#         # if sid_num == len(M_dict[sid]['process_list']):
+#         res['code'] = 1
+#         cur_num = len(M_dict[sid]['process_list'])
+#         res['msg'] = f"Already Init ({sid}_x{cur_num}). call `unload_model` first."
+#         return json.dumps(res)
+
+#     # 假设一个模型占用2.8GB显存
+#     if get_free_gpu_mem()[0] <= 2800 * (sid_num+1):
+#         res['code'] = 1
+#         res['msg'] = 'GPU OOM'
+#         return json.dumps(res)
+
+#     # 从OSS上加载模型
+#     if download_overwrite == "1" or (not (os.path.exists(R.get_sovits_fp(sid)) and os.path.exists(R.get_gpt_fp(sid)))):
+#         try:
+#             logging.info(f"download oss models of '{sid}'")
+#             logging.info(f"- sovits_fp: {R.get_sovits_fp(sid)}")
+#             logging.info(f"- gpt_fp: {R.get_gpt_fp(sid)}")
+#             utils_audio.download_from_qiniu(R.get_sovits_osskey(sid), R.get_sovits_fp(sid))
+#             utils_audio.download_from_qiniu(R.get_gpt_osskey(sid), R.get_gpt_fp(sid))
+#             logging.info("download finished")
+#         except Exception as e:
+#             logging.error(f"error when download '{sid}': {repr(e.message)}")
+#             res['code'] = 1
+#             res['msg'] = f"model of '{sid}' is not found and download failed"
+#             return json.dumps(res)
+
+#     assert os.path.exists(R.get_sovits_fp(sid))
+#     assert os.path.exists(R.get_gpt_fp(sid))
+
+#     # 开启N个子进程加载模型并等待Queue里的数据来处理请求
+#     q_inp = mp.Queue()
+#     q_out = mp.Queue()
+#     process_list = []
+#     _load_events = []
+#     for _ in range(sid_num):
+#         event = mp.Event()
+#         p = mp.Process(target=model_process, args=(sid, q_inp, q_out, event))
+#         process_list.append(p)
+#         _load_events.append(event)
+#         p.start()
+#     # 阻塞直到所有模型加载完毕
+#     while not all([event.is_set() for event in _load_events]):
+#         pass
+#     M_dict[sid] = {"q_inp": q_inp, "q_out": q_out, "process_list": process_list}
+#     res['msg'] = "Init Success"
+#     logging.info(f"<<< Init of '{sid}' finished.")
+#     return json.dumps(res)
+
+
 
 
 @app.route("/unload_model", methods=['POST'])
@@ -204,7 +458,7 @@ def unload_model():
 
     # 有N个子进程，所以给队列放入N个None确保每个子进程全都能收到结束信号
     for _ in range(len(M_dict[sid]["process_list"])):
-        M_dict[sid]['q_inp'].put(None)
+        M_dict[sid]['q_inp'].put("STOP")
     for p in M_dict[sid]["process_list"]:
         p.join()
     # 清理掉字典里记录的kv
@@ -294,15 +548,48 @@ def add_reference():
     return res
 
 
-@app.route("/inference", methods=['POST'])
-def inference():
+# @app.route("/inference", methods=['POST'])
+# def inference():
+#     """
+#     http params:
+#     - 以Param类的成员变量为准
+#     """
+#     tlist = []
+#     tlist.append(int(time.time()*1000))
+#     info = request.get_json()
+#     logging.warning(f"inference at {time.time():.03f}s info:{info}")
+#     p = C.InferenceParam(info)
+#     # 检查speaker是否已经加载
+#     if p.speaker not in M_dict:
+#         return json.dumps({"code": 1,
+#                            "msg": f"inference使用的角色音({p.speaker})未被加载。已加载角色音: {M_dict.keys()}",
+#                            "result": ""})
+#     # 检查是否设置过默认的ref
+#     ref_audio_fp = R.get_ref_audio_fp(p.speaker, C.D_REF_SUFFIX)
+#     ref_text_fp = R.get_ref_text_fp(p.speaker, C.D_REF_SUFFIX)
+#     if not (os.path.exists(ref_audio_fp) and os.path.exists(ref_text_fp)):
+#         logging.warning(f">>> reference as '{p.ref_suffix}' is not ready, init a default one from training data.")
+#         add_default_ref(p.speaker)
+#     tlist.append(int(time.time()*1000))
+#     M_dict[p.speaker]["q_inp"].put(p)
+#     tlist.append(int(time.time()*1000))
+#     result = M_dict[p.speaker]["q_out"].get()
+#     tlist.append(int(time.time()*1000))
+#     print(f"server api tlist: " + ",".join([f'{b - a}ms' for a, b in zip(tlist[:-1], tlist[1:])]))
+#     return result
+
+@app.route("/check_speaker", methods=['POST'])
+def check_speaker():
     """
     http params:
     - 以Param类的成员变量为准
     """
-    tlist = []
-    tlist.append(int(time.time()*1000))
     info = request.get_json()
+    if info is None:
+        return json.dumps({"code": 1,
+                        "msg": "format error",
+                        "result": ""})
+
     logging.warning(f"inference at {time.time():.03f}s info:{info}")
     p = C.InferenceParam(info)
     # 检查speaker是否已经加载
@@ -316,14 +603,10 @@ def inference():
     if not (os.path.exists(ref_audio_fp) and os.path.exists(ref_text_fp)):
         logging.warning(f">>> reference as '{p.ref_suffix}' is not ready, init a default one from training data.")
         add_default_ref(p.speaker)
-    tlist.append(int(time.time()*1000))
-    M_dict[p.speaker]["q_inp"].put(p)
-    tlist.append(int(time.time()*1000))
-    result = M_dict[p.speaker]["q_out"].get()
-    tlist.append(int(time.time()*1000))
-    print(f"server api tlist: " + ",".join([f'{b - a}ms' for a, b in zip(tlist[:-1], tlist[1:])]))
-    return result
-
+    
+    return json.dumps({"code": 0,
+                        "msg": "speaker exist",
+                        "result": ""})
 
 @app.route("/train_model", methods=['POST'])
 def train_model():
@@ -401,7 +684,7 @@ def model_status():
     res = []
     for k, v in M_dict.items():
         p_list = v['process_list']
-        size = len(p_list) if all([p.is_alive() for p in p_list]) else -1
+        size = len(p_list) if all([p.is_alive() for p in p_list]) else 0
         res.append({"model_name": k, "model_num": size})
 
     logging.debug(str(res))
@@ -497,7 +780,7 @@ if __name__ == '__main__':
     M_dict = {}
 
     logging.info("Start Server")
-    app.run(host="0.0.0.0", port=6006)
+    app.run(host="0.0.0.0", port=8002)
     # 一个模型2.8GB, 3090一共24GB
     # gunicorn -w 4 -b 0.0.0.0:6006 GPT_SoVITS.GSV_server:app
 
@@ -505,7 +788,7 @@ if __name__ == '__main__':
     for k, v in M_dict.items():
         p_list = v['process_list']
         for _ in range(len(p_list)):
-            v['q_inp'].put(None)
+            v['q_inp'].put("STOP")
         for p in p_list:
             p.join()
 
