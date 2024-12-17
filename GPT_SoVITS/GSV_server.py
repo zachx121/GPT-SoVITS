@@ -360,6 +360,9 @@ def train_model():
     sid = info['speaker']
     lang = info['lang']
     data_urls = info['data_urls']
+    # todo 支持外部传一个目录，里面是切分好的音频
+    data_dir = info['data_dir']  # 如果data_dir有值就直接遍历这个目录（其实也是一个OSS目录）取数据，不从data_urls里取数
+    no_slice = info['no_slice']  # 下游不做自动切分了
     post2oss = "1"
     data_dir = os.path.join(C.VOICE_SAMPLE_DIR, sid)
     if os.path.exists(data_dir):

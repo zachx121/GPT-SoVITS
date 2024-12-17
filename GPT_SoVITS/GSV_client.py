@@ -37,10 +37,10 @@ def train(sid, data_urls, lang):
         rsp = requests.post(url + "check_training_status", data=json.dumps({}), headers=headers)
         print(rsp.status_code, rsp.json())
 
-def load(sid):
+def load(sid, num=2):
     logging.info(">>> start load")
     rsp = requests.post(url + "load_model",
-                        data=json.dumps({"speaker": sid, "speaker_num": 2}),
+                        data=json.dumps({"speaker": sid, "speaker_num": num}),
                         headers=headers,
                         timeout=10)
     print(rsp.status_code, rsp.json())
@@ -102,7 +102,7 @@ def inference(sid,
 # sys.exit(0)
 # 批量并行请求
 def bulk_request():
-    load("debug_female_1")
+    load("debug_female_1", 4)
     from requests_futures.sessions import FuturesSession
     import functools
     import datetime
@@ -127,9 +127,9 @@ def bulk_request():
     print(f"Now Sending Requests... at {sta_time}")
     for idx,(sid,lang,text) in enumerate([
                               ["debug_female_1", "en_us", "hi there, how is your day? I'm really excited to have this conversation with you, hope you can enjoy this too, okay?"],
-                              ["debug_female_1", "zh_cn", "你好，我是付航"],
                               ["debug_female_1", "en_us", "Hello, I'm Trump"],
-                              ["debug_female_1", "zh_cn", "你好，我是川普"]
+                              ["debug_female_1", "en_us", "Hello, I'm Trump"],
+                              ["debug_female_1", "en_us", "hi there, how is your day? I'm really excited to have this conversation with you"],
                           ]):
         logging.info(">>> start inference")
         future = session.post(url + "inference",
