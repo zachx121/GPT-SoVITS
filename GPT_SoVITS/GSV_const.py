@@ -31,6 +31,14 @@ class Route:
         return f"models/{sid}/{sid}_gpt"
 
     @staticmethod
+    def get_ref_audio_osskey(sid):
+        return f"models/{sid}/{sid}_ref_audio_default.wav"
+
+    @staticmethod
+    def get_ref_text_osskey(sid):
+        return f"models/{sid}/{sid}_ref_text_default.txt"
+
+    @staticmethod
     def get_ref_audio_fp(sid, suffix):
         return os.path.join(VOICE_SAMPLE_DIR, sid, f'ref_audio_{suffix}.wav')
 
@@ -80,12 +88,6 @@ class InferenceParam:
 
     def __init__(self, info_dict):
         for key in self.__annotations__.keys():
-            if key in info_dict and info_dict[key] is not None:
+            if key in info_dict:
                 setattr(self, key, info_dict[key])
-                
-    def __repr__(self):
-        return (f"InferenceParam(trace_id={self.trace_id}, speaker={self.speaker}, "
-                f"text={self.text}, lang={self.lang}, use_ref={self.use_ref}, "
-                f"ref_suffix={self.ref_suffix}, nocut={self.nocut}, debug={self.debug})")
 
-    

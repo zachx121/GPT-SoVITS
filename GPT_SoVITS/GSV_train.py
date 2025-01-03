@@ -427,6 +427,24 @@ if __name__ == '__main__':
         url = utils_audio.post2qiniu(gpt_fp, R.get_gpt_osskey(sid))
         logging.info(f">>> url as: '{url}'")
 
+        logging.info(">>> Uploading default_ref_audio to qiniu.")
+        asr_fp = os.path.join(C.VOICE_SAMPLE_DIR, sid, "asr", "denoised.list")
+        # 文件内容的示例如下：
+        # voice_sample/test_silang1636/denoised/ref_audio_default.wav_0000000000_0000127680.wav|denoised|ZH|真是脚带帽在头顶靴上下不？
+        with open(asr_fp, "r", encoding='utf-8') as fr:
+            line = fr.readline().strip()
+        infos = line.split("|")
+        _audio_fp = infos[0]
+        _lang = infos[2]
+        _lang_map = {v: k for k, v in C.LANG_MAP.items()}
+        _lang = _lang_map[_lang]
+        _text = infos[3]
+        with open(R.get_ref_text_fp(sid, C.D_REF_SUFFIX), "w") as fpw:
+            fpw.write(f"{_lang}|{_text}")
+        audio_url = utils_audio.post2qiniu(_audio_fp, R.get_ref_audio_osskey(sid))
+        text_url = utils_audio.post2qiniu(R.get_ref_text_fp(sid, C.D_REF_SUFFIX), R.get_ref_text_osskey(sid))
+        logging.info(f">>> [audio_url]:'{audio_url}' [text_url]:'{text_url}'")
+
     # Show models path
     models_fp = []
     for i in os.listdir(SoVITS_weight_root):
