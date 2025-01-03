@@ -368,9 +368,9 @@ def load_model():
         _load_events.append(event)
         p.start()
 
-    # 阻塞直到所有模型加载完毕
-    while not all([event.is_set() for event in _load_events]):
-        pass
+    # # 阻塞直到所有模型加载完毕
+    # while not all([event.is_set() for event in _load_events]):
+    #     pass
 
     M_dict[sid] = {"q_inp": q_inp, "process_list": process_list}
     res['msg'] = "Init Success"
