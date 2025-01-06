@@ -73,8 +73,6 @@ def get_machine_id():
         # 清理主机名：只保留字母、数字和横线
         if machine_id:
             machine_id = re.sub(r'[^a-zA-Z0-9\-]', '', machine_id).lower()
-
-        logging.info("Machine ID (hostname): %s", machine_id)
         return machine_id
 
     except Exception as e:
@@ -321,6 +319,7 @@ def load_model():
     res = {"code": 0, "msg": "", "result": ""}
     info = request.get_json()
     sid = info['speaker']
+
     sid_num = info['speaker_num']
     download_overwrite = info.get("download_overwrite", "0")
     logging.debug(f"load_model: {info}")
@@ -364,6 +363,7 @@ def load_model():
     for _ in range(sid_num):
         event = mp.Event()
         p = mp.Process(target=model_process, args=(sid, event,q_inp))  # 移除 q_out
+
         process_list.append(p)
         _load_events.append(event)
         p.start()
@@ -372,9 +372,8 @@ def load_model():
     # while not all([event.is_set() for event in _load_events]):
     #     pass
 
-    M_dict[sid] = {"q_inp": q_inp, "process_list": process_list}
+    M_dict[sid] = {"q_inp": q_inp, "process_list": process_list, "load_events":_load_events}
     res['msg'] = "Init Success"
-    logging.info(f"<<< Init of '{sid}' finished.")
     return json.dumps(res)
 
 
@@ -692,9 +691,8 @@ def model_status():
     # 检查本服务加载了那些speaker模型
     res = []
     for k, v in M_dict.items():
-        p_list = v['process_list']
-        size = len(p_list) if all([p.is_alive() for p in p_list]) else 0
-        res.append({"model_name": k, "model_num": size})
+        ready_num = len([e for e in v['load_events'] if e.is_set()])
+        res.append({"model_name": k, "model_num": ready_num})
 
     logging.debug(str(res))
     res = json.dumps({"code": 0,
