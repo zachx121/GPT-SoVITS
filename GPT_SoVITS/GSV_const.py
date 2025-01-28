@@ -58,7 +58,7 @@ class InferenceParam:
     ref_suffix: str = D_REF_SUFFIX  # 当可提供多个参考音频时，指定参考音频的后缀
     nocut: bool = True  # 是否不做切分
     debug: bool = False
-
+    result_queue_name: str = None # 请求返回结果的队列名
     # 模型接收的语言参数名和通用的不一样，重新映射
     @property
     def tgt_lang(self):
@@ -90,6 +90,11 @@ class InferenceParam:
 
     def __init__(self, info_dict):
         for key in self.__annotations__.keys():
-            if key in info_dict:
+            if key in info_dict and info_dict[key] is not None:
                 setattr(self, key, info_dict[key])
+                
+    def __repr__(self):
+        return (f"InferenceParam(trace_id={self.trace_id}, speaker={self.speaker}, "
+                f"text={self.text}, lang={self.lang}, use_ref={self.use_ref}, "
+                f"ref_suffix={self.ref_suffix}, nocut={self.nocut}, debug={self.debug}),result_queue_name={self.result_queue_name}")
 
