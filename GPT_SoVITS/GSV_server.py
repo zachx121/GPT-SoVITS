@@ -66,6 +66,7 @@ log_dir = "./logs"
 log_file = "server.log"
 queue_service_inference_request_prefix='queue_service_inference_request_'
 
+
 def get_machine_id():
     """获取机器的主机名，清理并返回。"""
     machine_id = None
@@ -88,7 +89,8 @@ def get_machine_id():
     except Exception as e:
         logger.error("Error getting machine ID: %s", repr(e))
         return None
-    
+
+
 def connect_to_rabbitmq():
     # RabbitMQ 连接信息
     rabbitmq_config = {
@@ -124,7 +126,8 @@ def connect_to_rabbitmq():
     except Exception as e:
         logger.error(f"Failed to connect to RabbitMQ: {repr(e)}")
         return None, None
-   
+
+
 def adjust_loudness(audio_arr, target_lufs=-23.0):
     """
     调整音频的响度（LUFS）到目标响度（LUFS）。
@@ -143,7 +146,6 @@ def adjust_loudness(audio_arr, target_lufs=-23.0):
     adjusted_audio = pyln.normalize.loudness(audio_arr, current_lufs, target_lufs)
     
     return adjusted_audio
-
 
 
 def model_process(sid: str, event, q_inp):
@@ -342,78 +344,13 @@ def model_process(sid: str, event, q_inp):
     torch.cuda.empty_cache()
 
 
-# def model_process(sid, q_inp, q_out, event):
-#     M = GSVModel(sovits_model_fp=R.get_sovits_fp(sid),
-#                  gpt_model_fp=R.get_gpt_fp(sid),
-#                  speaker=sid)
-#     event.set()
-#     while True:
-#         p: C.InferenceParam = q_inp.get()
-#         try:
-#             tlist = []
-#             tlist.append(int(time.time()*1000))
-#             if p is None:
-#                 break
-#             tlist.append(int(time.time() * 1000))
-#             if p.debug:
-#                 logger.info(f"""params as: 
-#                 target_text={p.text},
-#                 target_lang={p.tgt_lang},
-#                 ref_info={p.ref_info}, # ReferenceInfo(audio_fp={p.ref_info.audio_fp},text={p.ref_info.text},lang={p.ref_info.lang}) 
-#                 top_k=1, top_p=0, temperature=0,
-#                 ref_free={p.ref_free}, no_cut={p.nocut}
-#                 """)
-#             wav_sr, wav_arr_int16 = M.predict(target_text=p.text,
-#                                               target_lang=p.tgt_lang,
-#                                               ref_info=p.ref_info,
-#                                               top_k=20, top_p=0.8, temperature=0.3,
-#                                               ref_free=p.ref_free, no_cut=p.nocut)
-#             if p.debug:
-#                 # 后处理之前的音频
-#                 import soundfile as sf
-#                 sf.write(f"{sid}_{time.time():.0f}_ori.wav", wav_arr_int16, wav_sr)
-#                 tlist.append(int(time.time()*1000))
-#             # 后处理 | (int16,random_sr)-->(int16,16khz)
-#             wav_arr_float32 = wav_arr_int16.astype(np.float32) / 32768.0
-#             wav_arr_float32_16khz = librosa.resample(wav_arr_float32, orig_sr=wav_sr, target_sr=16000)
-#             wav_arr_int16 = (np.clip(wav_arr_float32_16khz, -1.0, 1.0) * 32767).astype(np.int16)
-#             if p.debug:
-#                 sf.write(f"{sid}_{time.time():.0f}_16khz.wav", wav_arr_int16, 16000)
-#             tlist.append(int(time.time()*1000))
-#             rsp = {"trace_id": p.trace_id,
-#                    # "audio_buffer": base64.b64encode(wav_arr.tobytes()).decode(),
-#                    "audio_buffer_int16": base64.b64encode(wav_arr_int16.tobytes()).decode(),
-#                    "sample_rate": 16000}
-#             rsp = json.dumps({"code": 0,
-#                               "msg": "",
-#                               "result": rsp})
-#             tlist.append(int(time.time()*1000))
-#             q_out.put(rsp)
-#             tlist.append(int(time.time()*1000))
-#             print(f"model time tlist: " + ",".join([f'{b - a}ms' for a, b in zip(tlist[:-1], tlist[1:])]))
-        # except Exception as e:
-        #     logger.error(f">>> Error when model.predict. e: {repr(e)}")
-        #     rsp = {"trace_id": p.trace_id,
-        #            "audio_buffer_int16": "",
-        #            "sample_rate": 16000}
-        #     rsp = json.dumps({"code": 1,
-        #                       "msg": f"Prediction failed, internal err {repr(e)}",
-        #                       "result": rsp})
-#             q_out.put(rsp)
-
-#     # 结束时清理掉模型和显存
-#     del M
-#     import gc
-#     gc.collect()
-#     torch.cuda.empty_cache() 
-
-
 # 返回所有GPU的内存空余量，是一个list
 def get_free_gpu_mem():
     command = "nvidia-smi --query-gpu=memory.free --format=csv"
     memory_free_info = check_output(command.split()).decode('ascii').split('\n')[:-1][1:]
     memory_free_values = [int(x.split()[0]) for i, x in enumerate(memory_free_info)]
     return memory_free_values
+
 
 @app.route("/load_model", methods=['POST'])
 def load_model():
@@ -425,7 +362,6 @@ def load_model():
     res = {"code": 0, "msg": "", "result": ""}
     info = request.get_json()
     sid = info['speaker']
-
     sid_num = info['speaker_num']
 #   download_overwrite = info.get("download_overwrite", "0")
     logger.info(f"load_model: {info}")
@@ -464,74 +400,6 @@ def load_model():
     M_dict[sid] = {"q_inp": q_inp, "process_list": process_list, "load_events":_load_events}
     res['msg'] = "Init Success"
     return json.dumps(res)
-
-
-
-# @app.route("/load_model", methods=['POST'])
-# def load_model():
-#     """
-#     http params:
-#     - speaker:str
-#     - speaker_num:int
-#     """
-#     res = {"code": 0, "msg": "", "result": ""}
-#     info = request.get_json()
-#     sid = info['speaker']
-#     sid_num = info['speaker_num']
-#     download_overwrite = info.get("download_overwrite", "0")
-#     logger.debug(f"load_model: {info}")
-#     if sid in M_dict:
-#         # 直接全部unload重新加载，减少逻辑
-#         # if sid_num == len(M_dict[sid]['process_list']):
-#         res['code'] = 1
-#         cur_num = len(M_dict[sid]['process_list'])
-#         res['msg'] = f"Already Init ({sid}_x{cur_num}). call `unload_model` first."
-#         return json.dumps(res)
-
-#     # 假设一个模型占用2.8GB显存
-#     if get_free_gpu_mem()[0] <= 2800 * (sid_num+1):
-#         res['code'] = 1
-#         res['msg'] = 'GPU OOM'
-#         return json.dumps(res)
-
-#     # 从OSS上加载模型
-#     if download_overwrite == "1" or (not (os.path.exists(R.get_sovits_fp(sid)) and os.path.exists(R.get_gpt_fp(sid)))):
-#         try:
-#             logger.info(f"download oss models of '{sid}'")
-#             logger.info(f"- sovits_fp: {R.get_sovits_fp(sid)}")
-#             logger.info(f"- gpt_fp: {R.get_gpt_fp(sid)}")
-#             utils_audio.download_from_qiniu(R.get_sovits_osskey(sid), R.get_sovits_fp(sid))
-#             utils_audio.download_from_qiniu(R.get_gpt_osskey(sid), R.get_gpt_fp(sid))
-#             logger.info("download finished")
-#         except Exception as e:
-#             logger.error(f"error when download '{sid}': {repr(e.message)}")
-#             res['code'] = 1
-#             res['msg'] = f"model of '{sid}' is not found and download failed"
-#             return json.dumps(res)
-
-#     assert os.path.exists(R.get_sovits_fp(sid))
-#     assert os.path.exists(R.get_gpt_fp(sid))
-
-#     # 开启N个子进程加载模型并等待Queue里的数据来处理请求
-#     q_inp = mp.Queue()
-#     q_out = mp.Queue()
-#     process_list = []
-#     _load_events = []
-#     for _ in range(sid_num):
-#         event = mp.Event()
-#         p = mp.Process(target=model_process, args=(sid, q_inp, q_out, event))
-#         process_list.append(p)
-#         _load_events.append(event)
-#         p.start()
-#     # 阻塞直到所有模型加载完毕
-#     while not all([event.is_set() for event in _load_events]):
-#         pass
-#     M_dict[sid] = {"q_inp": q_inp, "q_out": q_out, "process_list": process_list}
-#     res['msg'] = "Init Success"
-#     logger.info(f"<<< Init of '{sid}' finished.")
-#     return json.dumps(res)
-
-
 
 
 @app.route("/unload_model", methods=['POST'])
@@ -645,36 +513,6 @@ def add_reference():
     return res
 
 
-# @app.route("/inference", methods=['POST'])
-# def inference():
-#     """
-#     http params:
-#     - 以Param类的成员变量为准
-#     """
-#     tlist = []
-#     tlist.append(int(time.time()*1000))
-#     info = request.get_json()
-#     logger.warning(f"inference at {time.time():.03f}s info:{info}")
-#     p = C.InferenceParam(info)
-#     # 检查speaker是否已经加载
-#     if p.speaker not in M_dict:
-#         return json.dumps({"code": 1,
-#                            "msg": f"inference使用的角色音({p.speaker})未被加载。已加载角色音: {M_dict.keys()}",
-#                            "result": ""})
-#     # 检查是否设置过默认的ref
-#     ref_audio_fp = R.get_ref_audio_fp(p.speaker, C.D_REF_SUFFIX)
-#     ref_text_fp = R.get_ref_text_fp(p.speaker, C.D_REF_SUFFIX)
-#     if not (os.path.exists(ref_audio_fp) and os.path.exists(ref_text_fp)):
-#         logger.warning(f">>> reference as '{p.ref_suffix}' is not ready, init a default one from training data.")
-#         add_default_ref(p.speaker)
-#     tlist.append(int(time.time()*1000))
-#     M_dict[p.speaker]["q_inp"].put(p)
-#     tlist.append(int(time.time()*1000))
-#     result = M_dict[p.speaker]["q_out"].get()
-#     tlist.append(int(time.time()*1000))
-#     print(f"server api tlist: " + ",".join([f'{b - a}ms' for a, b in zip(tlist[:-1], tlist[1:])]))
-#     return result
-
 @app.route("/check_speaker", methods=['POST'])
 def check_speaker():
     """
@@ -704,6 +542,7 @@ def check_speaker():
     return json.dumps({"code": 0,
                         "msg": "speaker exist",
                         "result": ""})
+
 
 @app.route("/train_model", methods=['POST'])
 def train_model():
@@ -773,7 +612,6 @@ def check_training_status():
                           "msg": "success",
                           "result": sid_list})
     return res
-
 
 
 @app.route("/download_model", methods=['POST'])
@@ -852,6 +690,7 @@ def get_local_file_storage():
     res = dict([i.split("\t")[::-1] for i in output.split("\n")])
     return json.dumps({"code": 0, "msg": "", "result": res})
 
+
 def config_log():
      # 确保日志目录存在
     if not os.path.exists(log_dir):
@@ -880,6 +719,7 @@ def config_log():
     logger.addHandler(file_handler)
     return logger
 
+
 @app.route("/model_status", methods=['POST'])
 def model_status():
     # 检查本服务加载了那些speaker模型
@@ -894,31 +734,6 @@ def model_status():
                       "result": res})
     return res
 
-# # if __name__ == '__main__':
-    
-    
-#     # mp_logger = mp.log_to_stderr()
-#     # mp_logger.setLevel(logging.DEBUG)  # 设置日志级别
-    
-#     mp.set_start_method("spawn")
-#     logger.info("Preparing")
-#     os.makedirs(C.VOICE_SAMPLE_DIR, exist_ok=True)
-#     os.makedirs(C.GPT_DIR, exist_ok=True)
-#     os.makedirs(C.SOVITS_DIR, exist_ok=True)
-#     M_dict = {}
-
-#     logger.info("Start Server")
-#     app.run(host="0.0.0.0", port=8002)
-#     # 一个模型2.8GB, 3090一共24GB
-#     # gunicorn -w 4 -b 0.0.0.0:6006 GPT_SoVITS.GSV_server:app
-
-#     # 给队列发送结束信号
-#     for k, v in M_dict.items():
-#         p_list = v['process_list']
-#         for _ in range(len(p_list)):
-#             v['q_inp'].put("STOP")
-#         for p in p_list:
-#             p.join()
 
 def get_model_status():
     """
@@ -931,13 +746,13 @@ def get_model_status():
     return res
 
 
-
 # 模块级别初始化全局变量
 last_status = None
 connection = None
 channel = None
 last_sent_time = 0  # 用于记录上次发送时间
 SEND_INTERVAL = 2  # 发送间隔，单位为秒
+
 
 def check_and_notify():
     """
@@ -976,6 +791,7 @@ def check_and_notify():
         except Exception as e:
             logger.error(f"Failed to send message to RabbitMQ: {e}", exc_info=True)
 
+
 def schedule_tasks():
     """
     定时任务调度
@@ -985,7 +801,8 @@ def schedule_tasks():
     while True:
         schedule.run_pending()
         time.sleep(1)
-        
+
+
 def cleanup():
     print("Cleaning up resources before exiting...")
     # 给队列发送结束信号

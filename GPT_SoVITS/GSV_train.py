@@ -148,6 +148,7 @@ def step_asr(denoised_dir, asr_dir, lang="auto"):
         avg_words = total_words/len(lines)
     logger.info(f">>> ASR Finished. [Lines]: {len(lines)} [AvgWords]: {avg_words:.02f} [LongestSeg]: {longest}")
 
+
 # 不能直接用webui.py里的open1abc，因为那个函数返回里用了yield
 def step_apply_pretrains(asr_fp, exp_root_dir, is_half,sid):
     logger.info(f">>> Apply Pretrains on '{asr_fp}'... ")
@@ -371,120 +372,13 @@ def step_train_gpt(sid, total_epoch, is_half, exp_root_dir, gpt_weight_root, tmp
     p_train_GPT = None
 
 
-# if __name__ == '__main__':
-#     # python GPT_SoVITS/GSV_train.py ZH XiaoLin ~/AudioProject/voice_sample/XiaoLinShuo 1
-#     # python GPT_SoVITS/GSV_train.py EN ChatTTS_Voice_Clone_0_Kelly /root/autodl-tmp/voice_sample/ChatTTS_Voice_Clone_0_Kelly 1
-#     if len(sys.argv) == 5:
-#         LANG = sys.argv[1]  # e.g. EN/ZH
-#         sid = sys.argv[2]
-#         INPUT_DIR = sys.argv[3]
-#         POST_TO_OSS = sys.argv[4]
-#     else:
-#         logging.error(f">>> sys.argv not enough (<LANG> <EXP_NAME> <INPUT_DIR> <POST_TO_OSS>). `{' '.join(sys.argv)}`")
-#         sys.exit(1)
-
-#     logging.basicConfig(format='[%(asctime)s-%(levelname)s-%(funcName)s]: %(message)s',
-#                         datefmt="%Y-%m-%d %H:%M:%S",
-#                         level=logging.INFO,
-#                         force=True,
-#                         handlers=[logging.FileHandler(f"{sid}_train.log", mode='w'),
-#                                   logging.StreamHandler()])
-
-#     IS_HALF = False
-#     SLICE_DIR = os.path.join(INPUT_DIR, 'sliced')
-#     DENOISED_DIR = os.path.join(INPUT_DIR, 'denoised')
-#     ASR_DIR = os.path.join(INPUT_DIR, 'asr')
-#     ASR_FP = os.path.join(ASR_DIR, os.path.basename(DENOISED_DIR)) + ".list"
-#     EXP_ROOT_DIR = C.LOG_DIR  # "logs"  # 模型训练相关的特征数据路径
-#     TMP_DIR = os.path.join(EXP_ROOT_DIR, "TEMP_CONFIG")
-#     SoVITS_weight_root = os.path.join(C.SOVITS_DIR, sid)  # 模型路径
-#     GPT_weight_root = os.path.join(C.GPT_DIR, sid)  # 模型路径
-
-#     logging.info(f">>> Start with ExpName='{sid}', InputDir='{INPUT_DIR}', Language='{LANG}'")
-
-#     # 清理上次遗留的数据 | EXP_ROOT_DIR=logs 这个根目录是所有训练的中间数据，历史的也都删掉，只留个最新的看看就行
-#     for i in [SLICE_DIR, DENOISED_DIR, ASR_DIR, EXP_ROOT_DIR, TMP_DIR, SoVITS_weight_root, GPT_weight_root]:
-#         if os.path.exists(i):
-#             shutil.rmtree(i)
-#         os.makedirs(i, exist_ok=True)
-
-#     logging.info(">>> At step_convert2wav")
-#     step_convert2wav(INPUT_DIR)
-#     logging.info(">>> At step_slice")
-#     step_slice(INPUT_DIR, SLICE_DIR, min_interval=80 if LANG == "EN" else 100)
-#     logging.info(">>> At step_denoise")
-#     step_denoise()
-#     logging.info(">>> At step_asr")
-#     step_asr(LANG)
-
-#     with open(os.path.join(ASR_DIR, "denoised.list"), "r") as fpr:
-#         lines = fpr.readlines()
-#     logging.info(f""">>> 整体数据处理结果
-#     [total lines]: {len(lines)}
-#     [wordsNum(空格切分) avg]: {sum([len(line.split("|")[3].split(" ")) for line in lines]) / len(lines)}
-#     [wordsNum(空格切分) max]: {max([len(line.split("|")[3].split(" ")) for line in lines])}
-#     [audioDuration avg]: {sum([_get_duration_of_wav(line.split("|")[0]) for line in lines]) / len(lines)}
-#     [audioDuration max]: {max([_get_duration_of_wav(line.split("|")[0]) for line in lines])}
-#     """)
-
-#     logging.info(">>> At step_apply_pretrains")
-#     step_apply_pretrains()
-#     logging.info(">>> At step_train_sovits")
-#     step_train_sovits()
-#     logging.info(">>> At step_train_gpt")
-#     step_train_gpt()
-
-#     # todo 模型目录xx_root应该按EXPNAME进行区分？
-#     sovits_fp = os.path.join(SoVITS_weight_root, sid + ".latest.pth")
-#     gpt_fp = os.path.join(GPT_weight_root, sid + ".latest.ckpt")
-#     os.rename(os.path.join(SoVITS_weight_root, get_latest_fp(SoVITS_weight_root)), sovits_fp)
-#     os.rename(os.path.join(GPT_weight_root, get_latest_fp(GPT_weight_root)), gpt_fp)
-
-#     if POST_TO_OSS == "1":
-#         logging.info(">>> Uploading sovits model to qiniu.")
-#         url = utils_audio.post2qiniu(sovits_fp, R.get_sovits_osskey(sid))
-#         logging.info(f">>> url as: '{url}'")
-#         logging.info(">>> Uploading gpt model to qiniu.")
-#         url = utils_audio.post2qiniu(gpt_fp, R.get_gpt_osskey(sid))
-#         logging.info(f">>> url as: '{url}'")
-
-#         logging.info(">>> Uploading default_ref_audio to qiniu.")
-#         asr_fp = os.path.join(C.VOICE_SAMPLE_DIR, sid, "asr", "denoised.list")
-#         # 文件内容的示例如下：
-#         # voice_sample/test_silang1636/denoised/ref_audio_default.wav_0000000000_0000127680.wav|denoised|ZH|真是脚带帽在头顶靴上下不？
-#         with open(asr_fp, "r", encoding='utf-8') as fr:
-#             line = fr.readline().strip()
-#         infos = line.split("|")
-#         _audio_fp = infos[0]
-#         _lang = infos[2]
-#         _lang_map = {v: k for k, v in C.LANG_MAP.items()}
-#         _lang = _lang_map[_lang]
-#         _text = infos[3]
-#         with open(R.get_ref_text_fp(sid, C.D_REF_SUFFIX), "w") as fpw:
-#             fpw.write(f"{_lang}|{_text}")
-#         audio_url = utils_audio.post2qiniu(_audio_fp, R.get_ref_audio_osskey(sid))
-#         text_url = utils_audio.post2qiniu(R.get_ref_text_fp(sid, C.D_REF_SUFFIX), R.get_ref_text_osskey(sid))
-#         logging.info(f">>> [audio_url]:'{audio_url}' [text_url]:'{text_url}'")
-
-#     # Show models path
-#     models_fp = []
-#     for i in os.listdir(SoVITS_weight_root):
-#         if sid in i:
-#             models_fp.append(os.path.abspath(os.path.join(SoVITS_weight_root, i)))
-#     for i in os.listdir(GPT_weight_root):
-#         if sid in i:
-#             models_fp.append(os.path.abspath(os.path.join(GPT_weight_root, i)))
-#     logging.info(">>> Models path:\n%s" % "\n".join(models_fp))
-#     logging.info("<<< Training finished.")
-    
-
-
 # 优化后的辅助函数
 def ensure_dir_exists(directory):
     """ 确保目录存在，如果存在则清理掉 """
     if os.path.exists(directory):
         shutil.rmtree(directory)
     os.makedirs(directory, exist_ok=True)
+
 
 def download_file(url, target_dir):
     """ 下载文件并保存到指定目录 """
@@ -501,10 +395,12 @@ def download_file(url, target_dir):
     except Exception as e:
         logger.error(f"Error downloading {url}: {str(e)}")
 
+
 def download_files_in_parallel(urls, target_dir, num_workers=4):
     """ 并行下载多个文件 """
     with mp.Pool(num_workers) as pool:
         pool.starmap(download_file, [(url, target_dir) for url in urls])
+
 
 def log_audio_statistics(asr_dir):
     """ 打印音频数据的统计信息 """
@@ -526,6 +422,7 @@ def log_audio_statistics(asr_dir):
         [max audio duration]: {max_duration}
     """)
 
+
 def send_result_to_queue(channel, result):
     """ 发送训练结果到队列 """
     channel.basic_publish(
@@ -536,14 +433,14 @@ def send_result_to_queue(channel, result):
     )
     logger.info(f"Training result sent to tran_result_queue: {result}")
 
+
 def clean_temp_dirs(dirs):
     """ 清理临时文件夹 """
     for dir_path in dirs:
         if os.path.exists(dir_path):
             shutil.rmtree(dir_path)
             
-            
-    
+
 def train_model(task):
     """
     执行数据准备和模型训练
@@ -651,10 +548,9 @@ def train_model(task):
     clean_temp_dirs([SLICE_DIR, DENOISED_DIR, TMP_DIR])
 
 
+queue_tran_request = "queue_tran_request"
+queue_tran_result = "queue_tran_result"
 
-
-queue_tran_request="queue_tran_request"    
-queue_tran_result="queue_tran_result"
 
 def train_consumer():
     connection, channel = connect_to_rabbitmq()
@@ -708,7 +604,6 @@ def send_result_with_retry(channel, result):
         except Exception as e:
             logger.error(f"Failed to send result: {e}")
             time.sleep(2)  # 等待后重试
-
 
 
 def connect_to_rabbitmq():

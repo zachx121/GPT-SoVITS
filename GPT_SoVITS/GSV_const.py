@@ -8,12 +8,10 @@ D_REF_SUFFIX = "default"
 # GPT_DIR = os.path.abspath(os.path.expanduser("./GPT_weights/"))
 # SOVITS_DIR = os.path.abspath(os.path.expanduser("./SoVITS_weights/"))
 LOG_DIR = "/root/autodl-tmp/logs"
-# VOICE_SAMPLE_DIR = os.path.abspath(os.path.expanduser("/root/autodl-tmp/voice_sample/"))
-# GPT_DIR = os.path.abspath(os.path.expanduser("/root/autodl-tmp/GPT_weights/"))
-# SOVITS_DIR = os.path.abspath(os.path.expanduser("/root/autodl-tmp/SoVITS_weights/"))
 VOICE_SAMPLE_DIR = os.path.abspath(os.path.expanduser("/root/autodl-fs/voice_sample/"))
 GPT_DIR = os.path.abspath(os.path.expanduser("/root/autodl-fs/GPT_weights/"))
 SOVITS_DIR = os.path.abspath(os.path.expanduser("/root/autodl-fs/SoVITS_weights/"))
+
 
 class Route:
     @staticmethod
