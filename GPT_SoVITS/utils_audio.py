@@ -88,8 +88,10 @@ import os
 class QiniuConst:
     access_key = "izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP"
     secret_key = "pOhSAES6tocA3PzNF2fS_bnShTLUX5TEA1-tUmJY"
-    bucket_domain = "https://public.yisounda.com"
-    bucket_name = 'sounda-public'
+    bucket_domain = "http://resource.aisounda.cn"
+    bucket_public_domain = "https://public.yisounda.com"
+    bucket_name = 'sounda'
+    bucket_public_name = 'sounda-public'
 
 
 def post2qiniu(localfile, key):

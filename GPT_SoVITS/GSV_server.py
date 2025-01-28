@@ -27,6 +27,7 @@
 """
 
 import re
+import sys
 import librosa
 import torch
 import time
@@ -35,15 +36,14 @@ import os
 os.environ['TQDM_DISABLE'] = 'True'
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 import logging
+from logging.handlers import TimedRotatingFileHandler
 import base64
 import json
 import shutil
 from urllib.parse import unquote
 from subprocess import getstatusoutput, check_output
 from flask import Flask, request
-logging.basicConfig(format='[%(asctime)s-%(levelname)s-CLIENT]: %(message)s',
-                    datefmt="%Y-%m-%d %H:%M:%S",
-                    level=logging.INFO)
+
 from GSV_model import GSVModel, ReferenceInfo
 import GSV_const as C
 from GSV_const import Route as R
@@ -53,9 +53,18 @@ import socket
 import pika
 import queue
 import traceback  # 导入 traceback 模块
+import schedule
+import threading
+import atexit
+import pyloudnorm as pyln
 
 app = Flask(__name__, static_folder="./static_folder", static_url_path="")
 
+# 日志目录
+log_dir = "./logs"
+# 日志文件名
+log_file = "server.log"
+queue_service_inference_request_prefix='queue_service_inference_request_'
 
 def get_machine_id():
     """获取机器的主机名，清理并返回。"""
@@ -73,10 +82,11 @@ def get_machine_id():
         # 清理主机名：只保留字母、数字和横线
         if machine_id:
             machine_id = re.sub(r'[^a-zA-Z0-9\-]', '', machine_id).lower()
+        logger.info("get  machine ID: %s", machine_id)
         return machine_id
 
     except Exception as e:
-        logging.error("Error getting machine ID: %s", repr(e))
+        logger.error("Error getting machine ID: %s", repr(e))
         return None
     
 def connect_to_rabbitmq():
@@ -86,54 +96,140 @@ def connect_to_rabbitmq():
         "ports": [5672, 5673, 5674],
         "username": "admin",
         "password": "aibeeo",
-        "virtual_host": "test"
+        "virtual_host": "device-public"
     }
-
-    # 连接到 RabbitMQ
-    credentials = pika.PlainCredentials(rabbitmq_config["username"], rabbitmq_config["password"])
-    parameters = pika.ConnectionParameters(
-        host=rabbitmq_config["address"],
-        port=rabbitmq_config["ports"][0],  # 默认使用第一个端口
-        virtual_host=rabbitmq_config["virtual_host"],
-        credentials=credentials
-    )
-
     try:
+        # 连接到 RabbitMQ
+        credentials = pika.PlainCredentials(rabbitmq_config["username"], rabbitmq_config["password"])
+        parameters = pika.ConnectionParameters(
+            host=rabbitmq_config["address"],
+            port=rabbitmq_config["ports"][0],  # 默认使用第一个端口
+            virtual_host=rabbitmq_config["virtual_host"],
+            credentials=credentials,
+            connection_attempts=3,  # 最多尝试 3 次
+            retry_delay=5,         # 每次重试间隔 5 秒
+            socket_timeout=10      # 套接字超时时间为 10 秒
+        )
+        logger.info("mq配置完毕，开始blocking connect连接")
         connection = pika.BlockingConnection(parameters)
+        logger.info("mq连接完毕，获取到connection")
         channel = connection.channel()
-        logging.info("Connected to RabbitMQ successfully.")
+        logger.info("mq连接完毕，获取到chanel")
+
+        logger.info("Connected to RabbitMQ successfully.")
         # 全局消息属性
         global PROPERTIES
         PROPERTIES = pika.BasicProperties(content_type='application/json')  # 设置 content_type 为 JSON
         return connection, channel
     except Exception as e:
-        logging.error(f"Failed to connect to RabbitMQ: {repr(e)}")
+        logger.error(f"Failed to connect to RabbitMQ: {repr(e)}")
         return None, None
+   
+def adjust_loudness(audio_arr, target_lufs=-23.0):
+    """
+    调整音频的响度（LUFS）到目标响度（LUFS）。
+    :param audio_arr: 输入音频（[-1.0, 1.0] 范围的 numpy 数组）
+    :param target_lufs: 目标 LUFS（默认为 -23 LUFS）
+    :return: 调整后的音频
+    """
+    # 计算当前音频的 LUFS
+    meter = pyln.Meter(16000)  # 采样率是 16kHz
+    current_lufs = meter.integrated_loudness(audio_arr)
+
+    # 计算增益
+    gain = target_lufs - current_lufs
+
+    # 根据增益调整音频
+    adjusted_audio = pyln.normalize.loudness(audio_arr, current_lufs, target_lufs)
     
+    return adjusted_audio
+
+
+
 def model_process(sid: str, event, q_inp):
+    global logger
+    exchange_service_load_model_result='exchange_service_load_model_result'
+
+    logger=config_log()
     # 获取机器的 hostname
+    logger.info("开始运行model_process")
     machine_id = get_machine_id()
     if not machine_id:
-        logging.error("Failed to retrieve machine ID.")
+        logger.error("Failed to retrieve machine ID.")
         return
+    logger.info("检测模型文件是否存在")
+    # 从OSS上加载模型
+    if not (os.path.exists(R.get_sovits_fp(sid)) and os.path.exists(R.get_gpt_fp(sid))):
+        try:
+            logger.info(f"download oss models of '{sid}'")
+            logger.info(f"- sovits_fp: {R.get_sovits_fp(sid)}")
+            logger.info(f"- gpt_fp: {R.get_gpt_fp(sid)}")
+            utils_audio.download_from_qiniu(R.get_sovits_osskey(sid), R.get_sovits_fp(sid))
+            utils_audio.download_from_qiniu(R.get_gpt_osskey(sid), R.get_gpt_fp(sid))
+            logger.info("download finished")
+        except Exception as e:
+            res = {"code": 0, "msg": "", "result": ""}
+            logger.error(f"error when download '{sid}': {repr(e)}")
+            res['code'] = 1
+            res['msg'] = f"model of '{sid}' is not found and download failed"
+            return json.dumps(res)
 
-    request_queue_name = f"inference_request_queue_{machine_id}_{sid}"
-    result_queue_name = f"inference_result_queue_{machine_id}"
+    # 下载完成后检查文件是否存在
+    if not os.path.exists(R.get_sovits_fp(sid)) or not os.path.exists(R.get_gpt_fp(sid)):
+        # 如果文件未下载成功，发送load失败事件
+        logger.error(f"Model files for '{sid}' not found after download.")
+        load_result_event = {
+            "uniqueVoiceName": sid,  # 唯一语音名称
+            "loadStatus": False,      # 加载失败
+            "error": "Model download failed or file missing"
+        }
+        # 发送模型加载失败事件到 MQ
+        connection, channel = connect_to_rabbitmq()
+        if connection and channel:
+            channel.basic_publish(
+                exchange=exchange_service_load_model_result, 
+                routing_key='', 
+                body=json.dumps(load_result_event),  
+                properties=PROPERTIES
+            )
+        return  # 退出函数
+    
+
+    
+    request_queue_name = queue_service_inference_request_prefix+sid
+    
 
     # 连接到 RabbitMQ
     connection, channel = connect_to_rabbitmq()
     if not connection or not channel:
+        logger.info("连接mq失败")
         return  # 如果连接失败，退出函数
-
-    # 确保请求和结果队列存在
-    channel.queue_declare(queue=request_queue_name, durable=True)
-    channel.queue_declare(queue=result_queue_name, durable=True)
-
+    # 设置过期时间（单位：毫秒），这里设置为 1 小时（3600000 毫秒）
+    args = {
+        'x-expires': 60 * 60 * 1000  # 设置过期时间
+    }
+    # 声明队列并设置参数
+    channel.queue_declare(queue=request_queue_name, 
+                          durable=False,    # 队列是否持久化
+                          exclusive=False,  # 是否为独占队列
+                          auto_delete=False, # 是否自动删除
+                          arguments=args)   # 额外的参数（如过期时间）
+    
     M = GSVModel(sovits_model_fp=R.get_sovits_fp(sid),
                  gpt_model_fp=R.get_gpt_fp(sid),
                  speaker=sid)
+    
+    # 发送load成功事件
+    logger.info("发送load成功事件到mq")
+    load_result_event = {
+        "uniqueVoiceName": sid,  # 唯一语音名称
+        "loadStatus":True
+    }
+    channel.basic_publish(exchange=exchange_service_load_model_result, routing_key='', body=json.dumps(load_result_event),  properties=PROPERTIES)
+    logger.info("event设置为set")
     event.set()
     
+
     while True:
       
         # 进程是否关闭逻辑
@@ -145,18 +241,17 @@ def model_process(sid: str, event, q_inp):
 
         # 检查 p 是否为关闭信号
         if p == "STOP":  # 使用字符串 "STOP" 作为关闭信号
-            logging.info(f"Received shutdown signal for SID: {sid}. Exiting process.")
+            logger.info(f"Received shutdown signal for SID: {sid}. Exiting process.")
             break  # 接收到关闭信号，退出循环
             
             
         # 从 RabbitMQ 获取消息
-        method_frame, header_frame, body = channel.basic_get(queue=request_queue_name, auto_ack=True)
-        if body is None:
-            time.sleep(0.1)  # 如果没有消息，休眠一段时间
-            continue  # 如果没有消息，等待下一次
-        # 尝试解析 JSON
-          # 尝试解析 JSON
         try:
+            method_frame, header_frame, body = channel.basic_get(queue=request_queue_name, auto_ack=True)
+            if body is None:
+                time.sleep(0.1)  # 如果没有消息，休眠一段时间
+                continue  # 如果没有消息，等待下一次
+            # 尝试解析 JSON
             # 将字节串解码为字符串
             body_str = body.decode('utf-8')
             # 将字符串解析为字典
@@ -164,23 +259,28 @@ def model_process(sid: str, event, q_inp):
             # 创建 InferenceParam 实例
             p = C.InferenceParam(info_dict)
             # 处理 InferenceParam 实例
-            logging.info("InferenceParam 实例创建成功: %s", p)  # 使用 logging.info 打印 p
-            
             
         except json.JSONDecodeError as e:
-            logging.error(f"JSON 解析错误: {e}")
-            logging.error(traceback.format_exc())  # 打印完整的堆栈跟踪
+            logger.error(f"JSON 解析错误: {e}")
+            logger.error(traceback.format_exc())  # 打印完整的堆栈跟踪
             continue;
         except Exception as e:
-            logging.error(f"创建 InferenceParam 实例时出错: {e}")
-            logging.error(traceback.format_exc())  # 打印完整的堆栈跟踪
+            logger.error(f"创建 InferenceParam 实例时出错: {e}")
+            logger.error(traceback.format_exc())  # 打印完整的堆栈跟踪
             continue  # 继续下一个循环
 
         try:
+            # 检查是否设置过默认的ref
+            ref_audio_fp = R.get_ref_audio_fp(p.speaker, C.D_REF_SUFFIX)
+            ref_text_fp = R.get_ref_text_fp(p.speaker, C.D_REF_SUFFIX)
+            if not (os.path.exists(ref_audio_fp) and os.path.exists(ref_text_fp)):
+                logger.warning(f">>> reference as '{p.ref_suffix}' is not ready, init a default one from training data.")
+                add_default_ref(p.speaker)
+
             tlist = []
             tlist.append(int(time.time() * 1000))
             if p.debug:
-                logging.info(f"""params as: 
+                logger.info(f"""params as: 
                 target_text={p.text},
                 target_lang={p.tgt_lang},
                 ref_info={p.ref_info}, # ReferenceInfo(audio_fp={p.ref_info.audio_fp},text={p.ref_info.text},lang={p.ref_info.lang}) 
@@ -197,10 +297,14 @@ def model_process(sid: str, event, q_inp):
                 import soundfile as sf
                 sf.write(f"{sid}_{time.time():.0f}_ori.wav", wav_arr_int16, wav_sr)
                 tlist.append(int(time.time()*1000))
+            
+           
             # 后处理 | (int16,random_sr)-->(int16,16khz)
             wav_arr_float32 = wav_arr_int16.astype(np.float32) / 32768.0
             wav_arr_float32_16khz = librosa.resample(wav_arr_float32, orig_sr=wav_sr, target_sr=16000)
-            wav_arr_int16 = (np.clip(wav_arr_float32_16khz, -1.0, 1.0) * 32767).astype(np.int16)
+             # 调整响度
+            wav_arr = adjust_loudness(wav_arr_float32_16khz, target_lufs=-23.0)  # 假设目标响度为 -23 LUFS
+            wav_arr_int16 = (np.clip(wav_arr, -1.0, 1.0) * 32767).astype(np.int16)
             if p.debug:
                 sf.write(f"{sid}_{time.time():.0f}_16khz.wav", wav_arr_int16, 16000)
             tlist.append(int(time.time()*1000))
@@ -214,18 +318,20 @@ def model_process(sid: str, event, q_inp):
                               "msg": "",
                               "result": rsp})
 
-            channel.basic_publish(exchange='', routing_key=result_queue_name, body=rsp,  properties=PROPERTIES)
+            channel.basic_publish(exchange='', routing_key=p.result_queue_name, body=rsp,  properties=PROPERTIES)
             tlist.append(int(time.time()*1000))
 
         except Exception as e:
-            logging.error(f">>> Error when model.predict. e: {repr(e)}")
+            logger.error(f">>> Error when model.predict. e: {repr(e)}")
+            logger.error(traceback.format_exc())  # 打印完整的堆栈跟踪
+
             rsp = {"trace_id": p.trace_id,
                    "audio_buffer_int16": "",
                    "sample_rate": 16000}
             rsp = json.dumps({"code": 1,
                               "msg": f"Prediction failed, internal err {repr(e)}",
                               "result": rsp})
-            channel.basic_publish(exchange='', routing_key=result_queue_name, body=rsp,  properties=PROPERTIES)
+            channel.basic_publish(exchange='', routing_key=p.result_queue_name, body=rsp,  properties=PROPERTIES)
 
     # 清理资源
     channel.close()
@@ -250,7 +356,7 @@ def model_process(sid: str, event, q_inp):
 #                 break
 #             tlist.append(int(time.time() * 1000))
 #             if p.debug:
-#                 logging.info(f"""params as: 
+#                 logger.info(f"""params as: 
 #                 target_text={p.text},
 #                 target_lang={p.tgt_lang},
 #                 ref_info={p.ref_info}, # ReferenceInfo(audio_fp={p.ref_info.audio_fp},text={p.ref_info.text},lang={p.ref_info.lang}) 
@@ -286,7 +392,7 @@ def model_process(sid: str, event, q_inp):
 #             tlist.append(int(time.time()*1000))
 #             print(f"model time tlist: " + ",".join([f'{b - a}ms' for a, b in zip(tlist[:-1], tlist[1:])]))
         # except Exception as e:
-        #     logging.error(f">>> Error when model.predict. e: {repr(e)}")
+        #     logger.error(f">>> Error when model.predict. e: {repr(e)}")
         #     rsp = {"trace_id": p.trace_id,
         #            "audio_buffer_int16": "",
         #            "sample_rate": 16000}
@@ -321,8 +427,8 @@ def load_model():
     sid = info['speaker']
 
     sid_num = info['speaker_num']
-    download_overwrite = info.get("download_overwrite", "0")
-    logging.debug(f"load_model: {info}")
+#   download_overwrite = info.get("download_overwrite", "0")
+    logger.info(f"load_model: {info}")
 
     if sid in M_dict:
         # 直接全部unload重新加载，减少逻辑
@@ -337,23 +443,6 @@ def load_model():
         res['msg'] = 'GPU OOM'
         return json.dumps(res)
 
-    # 从OSS上加载模型
-    if download_overwrite == "1" or (not (os.path.exists(R.get_sovits_fp(sid)) and os.path.exists(R.get_gpt_fp(sid)))):
-        try:
-            logging.info(f"download oss models of '{sid}'")
-            logging.info(f"- sovits_fp: {R.get_sovits_fp(sid)}")
-            logging.info(f"- gpt_fp: {R.get_gpt_fp(sid)}")
-            utils_audio.download_from_qiniu(R.get_sovits_osskey(sid), R.get_sovits_fp(sid))
-            utils_audio.download_from_qiniu(R.get_gpt_osskey(sid), R.get_gpt_fp(sid))
-            logging.info("download finished")
-        except Exception as e:
-            logging.error(f"error when download '{sid}': {repr(e)}")
-            res['code'] = 1
-            res['msg'] = f"model of '{sid}' is not found and download failed"
-            return json.dumps(res)
-
-    assert os.path.exists(R.get_sovits_fp(sid))
-    assert os.path.exists(R.get_gpt_fp(sid))
 
     # 开启N个子进程加载模型
     # 保留inp用于发布关闭信息
@@ -362,7 +451,7 @@ def load_model():
     _load_events = []
     for _ in range(sid_num):
         event = mp.Event()
-        p = mp.Process(target=model_process, args=(sid, event,q_inp))  # 移除 q_out
+        p = mp.Process(target=model_process, args=(sid,event,q_inp))  # 移除 q_out
 
         process_list.append(p)
         _load_events.append(event)
@@ -390,7 +479,7 @@ def load_model():
 #     sid = info['speaker']
 #     sid_num = info['speaker_num']
 #     download_overwrite = info.get("download_overwrite", "0")
-#     logging.debug(f"load_model: {info}")
+#     logger.debug(f"load_model: {info}")
 #     if sid in M_dict:
 #         # 直接全部unload重新加载，减少逻辑
 #         # if sid_num == len(M_dict[sid]['process_list']):
@@ -408,14 +497,14 @@ def load_model():
 #     # 从OSS上加载模型
 #     if download_overwrite == "1" or (not (os.path.exists(R.get_sovits_fp(sid)) and os.path.exists(R.get_gpt_fp(sid)))):
 #         try:
-#             logging.info(f"download oss models of '{sid}'")
-#             logging.info(f"- sovits_fp: {R.get_sovits_fp(sid)}")
-#             logging.info(f"- gpt_fp: {R.get_gpt_fp(sid)}")
+#             logger.info(f"download oss models of '{sid}'")
+#             logger.info(f"- sovits_fp: {R.get_sovits_fp(sid)}")
+#             logger.info(f"- gpt_fp: {R.get_gpt_fp(sid)}")
 #             utils_audio.download_from_qiniu(R.get_sovits_osskey(sid), R.get_sovits_fp(sid))
 #             utils_audio.download_from_qiniu(R.get_gpt_osskey(sid), R.get_gpt_fp(sid))
-#             logging.info("download finished")
+#             logger.info("download finished")
 #         except Exception as e:
-#             logging.error(f"error when download '{sid}': {repr(e.message)}")
+#             logger.error(f"error when download '{sid}': {repr(e.message)}")
 #             res['code'] = 1
 #             res['msg'] = f"model of '{sid}' is not found and download failed"
 #             return json.dumps(res)
@@ -439,7 +528,7 @@ def load_model():
 #         pass
 #     M_dict[sid] = {"q_inp": q_inp, "q_out": q_out, "process_list": process_list}
 #     res['msg'] = "Init Success"
-#     logging.info(f"<<< Init of '{sid}' finished.")
+#     logger.info(f"<<< Init of '{sid}' finished.")
 #     return json.dumps(res)
 
 
@@ -473,12 +562,12 @@ def add_default_ref(sid, tryOSS=True):
     audio_fp = R.get_ref_audio_fp(sid, C.D_REF_SUFFIX)
     text_fp = R.get_ref_text_fp(sid, C.D_REF_SUFFIX)
     if tryOSS:
-        logging.info("downloading default_ref from OSS")
-        logging.info(f"- ref_audio: {R.get_ref_audio_osskey(sid)} --> {audio_fp}")
-        logging.info(f"- ref_text: {R.get_ref_text_osskey(sid)} --> {text_fp}")
+        logger.info("downloading default_ref from OSS")
+        logger.info(f"- ref_audio: {R.get_ref_audio_osskey(sid)} --> {audio_fp}")
+        logger.info(f"- ref_text: {R.get_ref_text_osskey(sid)} --> {text_fp}")
         utils_audio.download_from_qiniu(R.get_ref_audio_osskey(sid), audio_fp)
         utils_audio.download_from_qiniu(R.get_ref_text_osskey(sid), text_fp)
-        logging.info("download finished")
+        logger.info("download finished")
         return None
 
     asr_fp = os.path.join(C.VOICE_SAMPLE_DIR, sid, "asr", "denoised.list")
@@ -517,7 +606,7 @@ def add_reference():
     - ref_text_url:str optional
     """
     info = request.get_json()
-    logging.debug(info)
+    logger.debug(info)
     sid = info['speaker']
     suffix = info.get("ref_suffix", C.D_REF_SUFFIX)
     os.makedirs(os.path.join(C.VOICE_SAMPLE_DIR, sid), exist_ok=True)
@@ -526,9 +615,9 @@ def add_reference():
 
     # 如果没有用默认的就说明有指定的音频，否则用训练集里的一句话
     if suffix != C.D_REF_SUFFIX:
-        logging.info(f">>> will use **ASSIGNED** audio&text with suffix: '{suffix}'")
+        logger.info(f">>> will use **ASSIGNED** audio&text with suffix: '{suffix}'")
         cmd = f"wget \"{info['ref_audio_url']}\" -O {audio_fp}"
-        logging.debug(f"will execute `{cmd}`")
+        logger.debug(f"will execute `{cmd}`")
         status, output = getstatusoutput(cmd)
         if status != 0:
             res = json.dumps({"code": 1,
@@ -537,7 +626,7 @@ def add_reference():
             return res
 
         cmd = f"wget \"{info['ref_text_url']}\" -O {text_fp}"
-        logging.debug(f"will execute `{cmd}`")
+        logger.debug(f"will execute `{cmd}`")
         status, output = getstatusoutput(cmd)
         if status != 0:
             res = json.dumps({"code": 1,
@@ -565,7 +654,7 @@ def add_reference():
 #     tlist = []
 #     tlist.append(int(time.time()*1000))
 #     info = request.get_json()
-#     logging.warning(f"inference at {time.time():.03f}s info:{info}")
+#     logger.warning(f"inference at {time.time():.03f}s info:{info}")
 #     p = C.InferenceParam(info)
 #     # 检查speaker是否已经加载
 #     if p.speaker not in M_dict:
@@ -576,7 +665,7 @@ def add_reference():
 #     ref_audio_fp = R.get_ref_audio_fp(p.speaker, C.D_REF_SUFFIX)
 #     ref_text_fp = R.get_ref_text_fp(p.speaker, C.D_REF_SUFFIX)
 #     if not (os.path.exists(ref_audio_fp) and os.path.exists(ref_text_fp)):
-#         logging.warning(f">>> reference as '{p.ref_suffix}' is not ready, init a default one from training data.")
+#         logger.warning(f">>> reference as '{p.ref_suffix}' is not ready, init a default one from training data.")
 #         add_default_ref(p.speaker)
 #     tlist.append(int(time.time()*1000))
 #     M_dict[p.speaker]["q_inp"].put(p)
@@ -598,7 +687,7 @@ def check_speaker():
                         "msg": "format error",
                         "result": ""})
 
-    logging.warning(f"inference at {time.time():.03f}s info:{info}")
+    logger.warning(f"inference at {time.time():.03f}s info:{info}")
     p = C.InferenceParam(info)
     # 检查speaker是否已经加载
     if p.speaker not in M_dict:
@@ -609,7 +698,7 @@ def check_speaker():
     ref_audio_fp = R.get_ref_audio_fp(p.speaker, C.D_REF_SUFFIX)
     ref_text_fp = R.get_ref_text_fp(p.speaker, C.D_REF_SUFFIX)
     if not (os.path.exists(ref_audio_fp) and os.path.exists(ref_text_fp)):
-        logging.warning(f">>> reference as '{p.ref_suffix}' is not ready, init a default one from training data.")
+        logger.warning(f">>> reference as '{p.ref_suffix}' is not ready, init a default one from training data.")
         add_default_ref(p.speaker)
     
     return json.dumps({"code": 0,
@@ -625,7 +714,7 @@ def train_model():
     - data_urls: list[str]
     """
     info = request.get_json()
-    logging.debug(info)
+    logger.debug(info)
     sid = info['speaker']
     lang = info['lang']
     data_urls = info['data_urls']
@@ -634,28 +723,28 @@ def train_model():
     if os.path.exists(data_dir):
         shutil.rmtree(data_dir)
     os.makedirs(data_dir)
-    logging.info(f">>> Start Data Preparing.")
+    logger.info(f">>> Start Data Preparing.")
     for url in data_urls:
-        logging.info(f">>> Downloading Sample from {url}")
+        logger.info(f">>> Downloading Sample from {url}")
         filename = os.path.basename(unquote(url).split("?")[0])
         cmd = f"wget \"{url}\" -O {os.path.join(data_dir,filename)}"
-        logging.debug(cmd)
+        logger.debug(cmd)
         status, output = getstatusoutput(cmd)
         if status != 0:
-            logging.error(f"    Download fail. url is {url}")
+            logger.error(f"    Download fail. url is {url}")
     if len(os.listdir(data_dir)) == 0:
         res = json.dumps({"code": 1,
                           "msg": "All Audio url failed to download.",
                           "result": ""})
         return res
-    logging.info(f">>> Start Model Training.")
+    logger.info(f">>> Start Model Training.")
     # nohup python GPT_SoVITS/GSV_train.py zh_cn ChatTTS_Voice_Clone_4_222rb2j voice_sample/ChatTTS_Voice_Clone_4_222rb2j > ChatTTS_Voice_Clone_4_222rb2j.train 2>&1 &
     # python GPT_SoVITS/GSV_train.py en_us ChatTTS_Voice_Clone_0_Mike_yvmz voice_sample/ChatTTS_Voice_Clone_0_Mike_yvmz 1 > ChatTTS_Voice_Clone_0_Mike_yvmz.train
     cmd = f"nohup python GPT_SoVITS/GSV_train.py {C.LANG_MAP[lang]} {sid} {data_dir} {post2oss} > {sid}.train 2>&1 &"
-    logging.info(f"    cmd is {cmd}")
+    logger.info(f"    cmd is {cmd}")
     status, output = getstatusoutput(cmd)
     if status != 0:
-        logging.error(f"    Model training failed. error:\n{output}")
+        logger.error(f"    Model training failed. error:\n{output}")
         res = json.dumps({"code": 1,
                           "msg": "Model Training Failed",
                           "result": ""})
@@ -686,20 +775,6 @@ def check_training_status():
     return res
 
 
-@app.route("/model_status", methods=['POST'])
-def model_status():
-    # 检查本服务加载了那些speaker模型
-    res = []
-    for k, v in M_dict.items():
-        ready_num = len([e for e in v['load_events'] if e.is_set()])
-        res.append({"model_name": k, "model_num": ready_num})
-
-    logging.debug(str(res))
-    res = json.dumps({"code": 0,
-                      "msg": "",
-                      "result": res})
-    return res
-
 
 @app.route("/download_model", methods=['POST'])
 def download_model():
@@ -712,7 +787,7 @@ def download_model():
             utils_audio.download_from_qiniu(sid+"_gpt", R.get_gpt_fp(sid))
             res.append({"model_name": sid, "download_success": True})
         except Exception as e:
-            logging.error(f"error when download '{sid}': {repr(e.message)}")
+            logger.error(f"error when download '{sid}': {repr(e.message)}")
             res.append({"model_name": sid, "download_success": False})
 
     res = json.dumps({"code": 0,
@@ -765,7 +840,7 @@ def rm_local_model():
             shutil.rmtree(os.path.join(C.SOVITS_DIR, sid))
             m_status.append({"model_name": sid, "is_removed": True})
         except Exception as e:
-            logging.error(f"Error when rm_local_model on '{sid}', the target_dirs: '{os.path.join(C.GPT_DIR, sid)}' '{os.path.join(C.SOVITS_DIR, sid)}'")
+            logger.error(f"Error when rm_local_model on '{sid}', the target_dirs: '{os.path.join(C.GPT_DIR, sid)}' '{os.path.join(C.SOVITS_DIR, sid)}'")
             m_status.append({"model_name": sid, "is_removed": False})
     return json.dumps({"code": 0, "msg": "", "result": m_status})
 
@@ -777,20 +852,142 @@ def get_local_file_storage():
     res = dict([i.split("\t")[::-1] for i in output.split("\n")])
     return json.dumps({"code": 0, "msg": "", "result": res})
 
+def config_log():
+     # 确保日志目录存在
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
 
-if __name__ == '__main__':
-    mp.set_start_method("spawn")
-    logging.info("Preparing")
-    os.makedirs(C.VOICE_SAMPLE_DIR, exist_ok=True)
-    os.makedirs(C.GPT_DIR, exist_ok=True)
-    os.makedirs(C.SOVITS_DIR, exist_ok=True)
-    M_dict = {}
+    # 配置日志
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)  # 设置日志级别为 INFO
 
-    logging.info("Start Server")
-    app.run(host="0.0.0.0", port=8002)
-    # 一个模型2.8GB, 3090一共24GB
-    # gunicorn -w 4 -b 0.0.0.0:6006 GPT_SoVITS.GSV_server:app
+    # 创建按天分隔的文件处理器
+    log_path = os.path.join(log_dir, log_file)
+    file_handler = TimedRotatingFileHandler(
+        filename=log_path,  # 日志文件路径
+        when="midnight",    # 按天分隔（午夜生成新日志文件）
+        interval=1,         # 每 1 天分隔一次
+        backupCount=7,      # 最多保留最近 7 天的日志文件
+        encoding="utf-8"    # 设置编码，避免中文日志乱码
+    )
+    file_handler.suffix = "%Y-%m-%d"  # 设置日志文件后缀格式，例如 server.log.2025-01-09
+    file_handler.setFormatter(logging.Formatter(
+        fmt='[%(asctime)s-%(levelname)s]: %(message)s',
+        datefmt="%Y-%m-%d %H:%M:%S"
+    ))
 
+    # 将文件处理器添加到日志记录器中
+    logger.addHandler(file_handler)
+    return logger
+
+@app.route("/model_status", methods=['POST'])
+def model_status():
+    # 检查本服务加载了那些speaker模型
+    res = []
+    for k, v in M_dict.items():
+        ready_num = len([e for e in v['load_events'] if e.is_set()])
+        res.append({"model_name": k, "model_num": ready_num})
+
+    logger.debug(str(res))
+    res = json.dumps({"code": 0,
+                      "msg": "",
+                      "result": res})
+    return res
+
+# # if __name__ == '__main__':
+    
+    
+#     # mp_logger = mp.log_to_stderr()
+#     # mp_logger.setLevel(logging.DEBUG)  # 设置日志级别
+    
+#     mp.set_start_method("spawn")
+#     logger.info("Preparing")
+#     os.makedirs(C.VOICE_SAMPLE_DIR, exist_ok=True)
+#     os.makedirs(C.GPT_DIR, exist_ok=True)
+#     os.makedirs(C.SOVITS_DIR, exist_ok=True)
+#     M_dict = {}
+
+#     logger.info("Start Server")
+#     app.run(host="0.0.0.0", port=8002)
+#     # 一个模型2.8GB, 3090一共24GB
+#     # gunicorn -w 4 -b 0.0.0.0:6006 GPT_SoVITS.GSV_server:app
+
+#     # 给队列发送结束信号
+#     for k, v in M_dict.items():
+#         p_list = v['process_list']
+#         for _ in range(len(p_list)):
+#             v['q_inp'].put("STOP")
+#         for p in p_list:
+#             p.join()
+
+def get_model_status():
+    """
+    检查当前的模型状态
+    """
+    res = []
+    for k, v in M_dict.items():
+        ready_num = len([e for e in v['load_events'] if e.is_set()])
+        res.append({"model_name": k, "model_num": ready_num})
+    return res
+
+
+
+# 模块级别初始化全局变量
+last_status = None
+connection = None
+channel = None
+last_sent_time = 0  # 用于记录上次发送时间
+SEND_INTERVAL = 2  # 发送间隔，单位为秒
+
+def check_and_notify():
+    """
+    定时检查模型状态，并将变化通知到 RabbitMQ
+    """
+    global last_status,last_sent_time  # 声明 last_status 是全局变量
+    global connection, channel  # 如果 connection 和 channel 也需要修改，声明它们为全局变量
+    # 获取当前状态
+    current_status = get_model_status()
+
+    # 比较当前状态与上一次的状态
+    if current_status != last_status or (time.time() - last_sent_time > SEND_INTERVAL):
+
+        try:
+            # 检查 RabbitMQ 连接
+            if channel is None or channel.is_closed:
+                connection, channel = connect_to_rabbitmq()
+
+            res = json.dumps({
+                "endpointType": endpoint_type,
+                "endpointUrl": service_url,
+                "modelList": current_status
+            })
+            # 发送消息到交换机
+            channel.basic_publish(
+                exchange="exchange_aiservice_model_sync",
+                routing_key="",  # 指定路由键
+                body=res,
+                properties=PROPERTIES
+            )
+
+            # 更新状态
+            last_status = current_status
+            last_sent_time = time.time()  # 更新上次发送时间
+
+        except Exception as e:
+            logger.error(f"Failed to send message to RabbitMQ: {e}", exc_info=True)
+
+def schedule_tasks():
+    """
+    定时任务调度
+    """
+    schedule.every(1).seconds.do(check_and_notify)  # 每 1 秒检查一次状态
+
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
+        
+def cleanup():
+    print("Cleaning up resources before exiting...")
     # 给队列发送结束信号
     for k, v in M_dict.items():
         p_list = v['process_list']
@@ -798,4 +995,51 @@ if __name__ == '__main__':
             v['q_inp'].put("STOP")
         for p in p_list:
             p.join()
+
+        
+if __name__ == '__main__':
+    logger=config_log()
+    mp.set_start_method("spawn")
+    logger.info("Preparing")
+    os.makedirs("voice_samples", exist_ok=True)
+    os.makedirs("gpt_dir", exist_ok=True)
+    os.makedirs("sovits_dir", exist_ok=True)
+    M_dict = {}
+    # M_dict = {
+    #     # 示例数据
+    #     "model1": {
+    #         "load_events": [mp.Event() for _ in range(5)],
+    #         "process_list": [],
+    #         "q_inp": mp.Queue()
+    #     },
+    #     "model2": {
+    #         "load_events": [mp.Event() for _ in range(3)],
+    #         "process_list": [],
+    #         "q_inp": mp.Queue()
+    #     }
+    # }
+
+    # 检查参数数量
+    if len(sys.argv) != 3:
+        logger.error("Error: Incorrect number of arguments.")
+        logger.error("Usage: python script.py <endpoint_type> <service_url>")
+        sys.exit(1)
+
+    # 获取参数
+    endpoint_type = int(sys.argv[1])
+    service_url = sys.argv[2]
+    # 打印参数（用于调试）
+    logger.info(f"Endpoint Type: {endpoint_type}")
+    logger.info(f"Service URL: {service_url}")
+    
+    # 启动定时任务调度线程
+    logger.info("Starting scheduled tasks...")
+    task_thread = threading.Thread(target=schedule_tasks)
+    task_thread.daemon = True  # 设置为守护线程，主进程退出时自动结束
+    task_thread.start()
+    # 启动 Flask 服务
+    logger.info("Starting Flask server...")
+    
+    app.run(host="0.0.0.0", port=8002)
+
 
