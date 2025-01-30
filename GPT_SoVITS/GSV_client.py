@@ -14,6 +14,9 @@ logging.basicConfig(format='[%(asctime)s-%(levelname)s-%(funcName)s]: %(message)
                     level=logging.DEBUG)
 
 url = "https://u212392-8449-c474cb97.beijinga.seetacloud.com/"
+url = "https://u212392-9373-aee51bf7.bjb1.seetacloud.com:8443/"
+
+assert url.endswith("/")
 
 headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
 
@@ -32,10 +35,10 @@ def train(sid, data_urls, lang):
         rsp = requests.post(url + "check_training_status", data=json.dumps({}), headers=headers)
         print(rsp.status_code, rsp.json())
 
-def load(sid):
+def load(sid, num=2):
     logging.info(">>> start load")
     rsp = requests.post(url + "load_model",
-                        data=json.dumps({"speaker": sid, "speaker_num": 2}),
+                        data=json.dumps({"speaker": sid, "speaker_num": num}),
                         headers=headers,
                         timeout=10)
     print(rsp.status_code, rsp.json())
@@ -97,6 +100,9 @@ sid, lang, sid_data_urls = "ChatTTS_Voice_Clone_0_Mike_komd", "en_us", ["http://
 # train(sid, sid_data_urls, lang=lang)
 # assert is_model_oss_available(sid)
 # sys.exit(0)
+load('test_silang1636')
+load('fuhang_1', 4)
+unload('fuhang_1')
 load(sid)
 model_status(sid)
 # sys.exit(0)

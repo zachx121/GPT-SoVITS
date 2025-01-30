@@ -8,9 +8,9 @@ D_REF_SUFFIX = "default"
 # GPT_DIR = os.path.abspath(os.path.expanduser("./GPT_weights/"))
 # SOVITS_DIR = os.path.abspath(os.path.expanduser("./SoVITS_weights/"))
 LOG_DIR = "/root/autodl-tmp/logs"
-VOICE_SAMPLE_DIR = os.path.abspath(os.path.expanduser("/root/autodl-tmp/voice_sample/"))
-GPT_DIR = os.path.abspath(os.path.expanduser("/root/autodl-tmp/GPT_weights/"))
-SOVITS_DIR = os.path.abspath(os.path.expanduser("/root/autodl-tmp/SoVITS_weights/"))
+VOICE_SAMPLE_DIR = os.path.abspath(os.path.expanduser("/root/autodl-fs/voice_sample/"))
+GPT_DIR = os.path.abspath(os.path.expanduser("/root/autodl-fs/GPT_weights/"))
+SOVITS_DIR = os.path.abspath(os.path.expanduser("/root/autodl-fs/SoVITS_weights/"))
 
 
 class Route:
@@ -31,6 +31,14 @@ class Route:
         return f"models/{sid}/{sid}_gpt"
 
     @staticmethod
+    def get_ref_audio_osskey(sid):
+        return f"models/{sid}/{sid}_ref_audio_default.wav"
+
+    @staticmethod
+    def get_ref_text_osskey(sid):
+        return f"models/{sid}/{sid}_ref_text_default.txt"
+
+    @staticmethod
     def get_ref_audio_fp(sid, suffix):
         return os.path.join(VOICE_SAMPLE_DIR, sid, f'ref_audio_{suffix}.wav')
 
@@ -48,7 +56,7 @@ class InferenceParam:
     ref_suffix: str = D_REF_SUFFIX  # 当可提供多个参考音频时，指定参考音频的后缀
     nocut: bool = True  # 是否不做切分
     debug: bool = False
-
+    result_queue_name: str = None # 请求返回结果的队列名
     # 模型接收的语言参数名和通用的不一样，重新映射
     @property
     def tgt_lang(self):
@@ -80,6 +88,11 @@ class InferenceParam:
 
     def __init__(self, info_dict):
         for key in self.__annotations__.keys():
-            if key in info_dict:
+            if key in info_dict and info_dict[key] is not None:
                 setattr(self, key, info_dict[key])
+                
+    def __repr__(self):
+        return (f"InferenceParam(trace_id={self.trace_id}, speaker={self.speaker}, "
+                f"text={self.text}, lang={self.lang}, use_ref={self.use_ref}, "
+                f"ref_suffix={self.ref_suffix}, nocut={self.nocut}, debug={self.debug}),result_queue_name={self.result_queue_name}")
 

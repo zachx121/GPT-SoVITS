@@ -88,11 +88,10 @@ import os
 class QiniuConst:
     access_key = "izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP"
     secret_key = "pOhSAES6tocA3PzNF2fS_bnShTLUX5TEA1-tUmJY"
-    bucket_domain = "https://public.yisounda.com"
-    bucket_name = 'sounda-public'
-    # 这个是音频数据存放的bucket对应的domain和name
-    bucket_domain_data = "https://resource.aisounda.cn"
-    bucket_name_data = 'sounda'
+    bucket_domain = "http://resource.aisounda.cn"
+    bucket_public_domain = "https://public.yisounda.com"
+    bucket_name = 'sounda'
+    bucket_public_name = 'sounda-public'
 
 
 def post2qiniu(localfile, key):
@@ -110,12 +109,11 @@ def post2qiniu(localfile, key):
     return private_url
 
 
-def check_on_qiniu(key, bucket_name=None):
+def check_on_qiniu(key, bucket_name=QiniuConst.bucket_name):
     q = Auth(QiniuConst.access_key, QiniuConst.secret_key)
     # 初始化BucketManager
     bucket = BucketManager(q)
-    bkt_name = QiniuConst.bucket_name if bucket_name is None else bucket_name
-    ret, eof, info = bucket.list(bkt_name)
+    ret, eof, info = bucket.list(bucket_name)
     return key in [i['key'] for i in ret['items']]
 
 
@@ -125,8 +123,6 @@ def get_url_from_qiniu(key):
 
 
 def download_from_qiniu(key, fp):
-    # key="model/clone/self/d86eca75-ec15-4ddd-b9bc-3180ddb05fbd.m4a"
-    # key="model/clone/self/e3ce89bf-e2df-436d-890e-2518ff24c2e3.m4a" # Olivia
     private_url = Auth(QiniuConst.access_key, QiniuConst.secret_key).private_download_url('%s/%s' % (QiniuConst.bucket_domain, key), expires=3600)
     cmd1 = f"mkdir -p {os.path.dirname(fp)}"
     cmd2 = f"wget --no-check-certificate -O {fp} '{private_url}'"
