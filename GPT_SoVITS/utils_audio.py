@@ -126,3 +126,6 @@ def download_from_qiniu(key, fp):
     cmd2 = f"wget -O {fp} '{private_url}'"
     s, o = getstatusoutput(f"{cmd1} && {cmd2}")
     assert s == 0, f"download failed. output:{o}"
+
+if __name__ == '__main__':
+    print(get_url_from_qiniu("ChineseASR_Damo.tgz"))

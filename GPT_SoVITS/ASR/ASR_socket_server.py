@@ -5,15 +5,16 @@ import numpy as np
 from funasr import AutoModel
 
 # 初始化 Flask 应用和 SocketIO
-SERVER_HOST = '127.0.0.1'
-SERVER_PORT = 8888
+SERVER_HOST = '0.0.0.0'
+SERVER_PORT = 6006
 app = Flask(__name__)
 socketio = SocketIO(app)
 # 同一时间只允许一个客户端连接socket
 is_connected, is_connected_lock = False, threading.Lock()
 
 # 初始化模型和流式参数
-model = AutoModel(model="paraformer-zh-streaming", model_revision="v2.0.4")
+# model = AutoModel(model="paraformer-zh-streaming", model_revision="v2.0.4")
+model = AutoModel(model="/root/GPT-SoVITS/GPT_SoVITS/ASR/model/paraformer-zh-streaming", model_revision="v2.0.4")
 chunk_size = [0, 10, 5]  # [0, 10, 5] 600ms, [0, 8, 4] 480ms
 encoder_chunk_look_back = 4  # number of chunks to lookback for encoder self-attention
 decoder_chunk_look_back = 1  # number of encoder chunks to lookback for decoder cross-attention

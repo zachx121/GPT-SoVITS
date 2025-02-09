@@ -11,6 +11,7 @@ sio = socketio.Client()
 SERVER_HOST = '127.0.0.1'
 SERVER_PORT = 8888
 SERVER_URL = f'http://{SERVER_HOST}:{SERVER_PORT}'
+SERVER_URL = "https://u212392-9062-d5043001.bjb1.seetacloud.com:8443"
 
 
 
