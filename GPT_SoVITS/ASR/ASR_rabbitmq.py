@@ -118,8 +118,7 @@ if __name__ == '__main__':
         audio_bytes = gzip.decompress(base64.b64decode(param["gzipAudio"]))
         audio_arr_int16 = np.frombuffer(audio_bytes, dtype=np.int16)
         audio_arr_float32 = audio_arr_int16.astype(np.float32) / 32768.0
-        if logger.level == logging.DEBUG:
-            scipy.io.wavfile.write(f"./aa_{time.time():.2f}.wav", 16000, audio_arr_float32)
+        # scipy.io.wavfile.write(f"./aa_{time.time():.2f}.wav", 16000, audio_arr_float32)
         # Audio(audio_arr_float32, rate=16000)
         logger.debug(f"received audio with duration: {audio_arr_float32.shape[0] / 16000:.2f}")
         res = model.generate(input=audio_arr_float32, disable_pbar=True)
