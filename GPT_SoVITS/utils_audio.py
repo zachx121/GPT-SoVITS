@@ -109,12 +109,12 @@ def post2qiniu(localfile, key):
     return private_url
 
 
-def check_on_qiniu(key, bucket_name=QiniuConst.bucket_name):
+def check_on_qiniu(keys, bucket_name=QiniuConst.bucket_name):
     q = Auth(QiniuConst.access_key, QiniuConst.secret_key)
     # 初始化BucketManager
     bucket = BucketManager(q)
     ret, eof, info = bucket.list(bucket_name)
-    return key in [i['key'] for i in ret['items']]
+    return [i['key'] for i in ret['items'] if all(j in i['key'] for j in keys)]
 
 
 def get_url_from_qiniu(key):
@@ -129,3 +129,6 @@ def download_from_qiniu(key, fp):
     # cmd2 = f"wget -O {fp} '{private_url}'"
     s, o = getstatusoutput(f"{cmd1} && {cmd2}")
     assert s == 0, f"download failed. output:{o}"
+
+if __name__ == '__main__':
+    print(get_url_from_qiniu("ChineseASR_Damo.tgz"))
