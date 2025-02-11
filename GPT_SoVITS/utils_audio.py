@@ -88,8 +88,10 @@ import os
 class QiniuConst:
     access_key = "izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP"
     secret_key = "pOhSAES6tocA3PzNF2fS_bnShTLUX5TEA1-tUmJY"
-    bucket_domain = "https://public.yisounda.com"
-    bucket_name = 'sounda-public'
+    bucket_domain = "http://resource.aisounda.cn"
+    bucket_public_domain = "https://public.yisounda.com"
+    bucket_name = 'sounda'
+    bucket_public_name = 'sounda-public'
 
 
 def post2qiniu(localfile, key):
@@ -107,11 +109,11 @@ def post2qiniu(localfile, key):
     return private_url
 
 
-def check_on_qiniu(key):
+def check_on_qiniu(key, bucket_name=QiniuConst.bucket_name):
     q = Auth(QiniuConst.access_key, QiniuConst.secret_key)
     # 初始化BucketManager
     bucket = BucketManager(q)
-    ret, eof, info = bucket.list(QiniuConst.bucket_name)
+    ret, eof, info = bucket.list(bucket_name)
     return key in [i['key'] for i in ret['items']]
 
 
@@ -123,9 +125,7 @@ def get_url_from_qiniu(key):
 def download_from_qiniu(key, fp):
     private_url = Auth(QiniuConst.access_key, QiniuConst.secret_key).private_download_url('%s/%s' % (QiniuConst.bucket_domain, key), expires=3600)
     cmd1 = f"mkdir -p {os.path.dirname(fp)}"
-    cmd2 = f"wget -O {fp} '{private_url}'"
+    cmd2 = f"wget --no-check-certificate -O {fp} '{private_url}'"
+    # cmd2 = f"wget -O {fp} '{private_url}'"
     s, o = getstatusoutput(f"{cmd1} && {cmd2}")
     assert s == 0, f"download failed. output:{o}"
-
-if __name__ == '__main__':
-    print(get_url_from_qiniu("models/faster_whisper_large_v3.tgz"))
