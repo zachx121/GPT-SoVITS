@@ -61,7 +61,7 @@ import pyloudnorm as pyln
 app = Flask(__name__, static_folder="./static_folder", static_url_path="")
 
 # 日志目录
-log_dir = "./logs"
+log_dir = "../GPT_SoVITS/logs"
 # 日志文件名
 log_file = "server.log"
 queue_service_inference_request_prefix='queue_service_inference_request_'

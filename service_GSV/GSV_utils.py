@@ -1,7 +1,7 @@
 
 import re
-from text.cleaner import clean_text
-from text import cleaned_text_to_sequence
+from GPT_SoVITS.text.cleaner import clean_text
+from GPT_SoVITS.text import cleaned_text_to_sequence
 
 def cut5(inp):
     inp = inp.strip("\n")

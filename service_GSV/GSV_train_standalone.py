@@ -5,6 +5,8 @@ import os
 import shutil
 import sys
 import json
+
+import librosa
 import yaml
 import wave
 import re
@@ -16,11 +18,7 @@ import multiprocessing as mp
 
 from urllib.parse import unquote
 from subprocess import Popen, getstatusoutput
-
-import numpy as np
-import librosa
-import torch
-from flask import Flask, request
+from utils_audio import get_url_from_qiniu
 
 import requests as http_requests  # 给 requests 库设置别名
 
@@ -30,11 +28,13 @@ from GSV_const import Route as R
 from GSV_model import GSVModel, ReferenceInfo
 import pika
 
-assert getstatusoutput("ls tools")[0] == 0, "必须在项目根目录下执行不然会有路径问题 e.g. python GPT_SoVITS/GSV_train.py"
+assert getstatusoutput("ls tools")[0] == 0, "必须在项目根目录下执行不然会有路径问题 e.g. python GPT_SoVITS/GSV_xxx.py"
 
 # 配置日志
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+logging.getLogger().setLevel(logging.INFO)
+
 
 # 人声分离
 # cmd = "demucs --two-stems=vocals xx"
@@ -145,12 +145,22 @@ def step_asr(denoised_dir, asr_dir, lang="auto"):
     fp = os.path.join(asr_dir, "denoised.list")
     with open(os.path.join(asr_dir, fp), "r", encoding="utf-8") as fr:
         lines = fr.readlines()
-        line_ref = lines[0]
-        lines_remain = lines[1:]
-    # 原文件第一行，放到另一个文件中作为参考音频使用
+        min_duration, min_idx = 999, -1
+        for idx,line in enumerate(lines):
+            duration = librosa.get_duration(filename=line.split("|")[0])
+            if duration <= 3.0:
+                continue
+            elif duration <= min_duration:
+                min_duration = duration
+                min_idx = idx
+            else:
+                continue
+        line_ref = lines.pop(min_idx)
+        lines_remain = lines
+    # 原文件找到最短的音频，放到另一个文件中作为参考音频使用
     with open(os.path.join(asr_dir, "denoised_ref.list"), "w", encoding="utf-8") as fw:
         fw.write(line_ref)
-    # 原文件第一行，从原文件中删掉
+    # 原文件找到最短的音频，从原文件中删掉
     with open(os.path.join(asr_dir, fp), "w", encoding="utf-8") as fw:
         fw.writelines(lines_remain)
 
@@ -295,7 +305,7 @@ def step_apply_pretrains(asr_fp, exp_root_dir, is_half,sid):
         logger.info("1c skipped.")
     ps1abc = []
 
-    logger.info(f"Pretrain抽取特征完毕，可检查输出目录 {os.path.abspath(os.path.join('logs', sid))}")
+    logger.info(f"Pretrain抽取特征完毕，可检查输出目录 {os.path.abspath(os.path.join('../GPT_SoVITS/logs', sid))}")
 
 
 def step_train_sovits(sid, total_epoch, is_half, exp_root_dir, sovits_weight_root, tmp_dir):
@@ -452,7 +462,7 @@ def clean_temp_dirs(dirs):
             shutil.rmtree(dir_path)
             
 
-def train_model(task):
+def train_model(task, post2oss="1"):
     """
     执行数据准备和模型训练
     """
@@ -460,7 +470,6 @@ def train_model(task):
     sid = task['speaker']
     LANG = C.LANG_MAP[task['lang']]
     data_urls = task['data_urls']
-    post2oss = "1"
 
     INPUT_DIR = os.path.join(C.VOICE_SAMPLE_DIR, sid)  # 使用 C 中的 VOICE_SAMPLE_DIR
     ensure_dir_exists(INPUT_DIR)
@@ -496,6 +505,7 @@ def train_model(task):
     step_denoise(SLICE_DIR,DENOISED_DIR)
     logger.info(">>> At step_asr")
     step_asr(DENOISED_DIR,ASR_DIR,LANG)
+
 
     log_audio_statistics(ASR_DIR)
 
@@ -547,144 +557,41 @@ def train_model(task):
     logger.info(">>> Models path:\n%s" % "\n".join(models_fp))
     logger.info("<<< Training finished.")
 
-    result= {"code": 0, "msg": "Model Training finish.", "result": sid}
-
-
-    # 直接重新建立连接，因为tran耗时比较久，这时候断开了
-    connection, channel = connect_to_rabbitmq()
-    # 发送结果到队列
-    send_result_with_retry(channel, result)
-
-    # 清理临时文件
-    clean_temp_dirs([SLICE_DIR, DENOISED_DIR, TMP_DIR])
-
-
-queue_tran_request = "queue_tran_request"
-queue_tran_result = "queue_tran_result"
-
-
-def train_consumer():
-    connection, channel = connect_to_rabbitmq()
-
-    while True:
-        try:
-            try:
-                if channel is None or channel.is_closed:
-                    connection, channel = connect_to_rabbitmq()
-            except Exception:
-                # 如果 抛出异常，直接重连
-                logger.info(f"mq connect error,reconnect")
-                connection, channel = connect_to_rabbitmq()
-    
-            method_frame, header_frame, body = channel.basic_get(queue=queue_tran_request, auto_ack=True)
-            if body is None:
-                time.sleep(0.1)  # 如果没有消息，休眠一段时间
-                continue  # 如果没有消息，等待下一次
-            # 解析任务消息
-            task = json.loads(body)
-            logger.info(f"Received training task: {task}")
-
-            # 执行训练逻辑
-            train_model(task)
-
-        except pika.exceptions.AMQPConnectionError:
-            logger.error("Connection to RabbitMQ lost, attempting to reconnect...")
-            connection, channel = connect_to_rabbitmq()
-        except Exception as e:
-            logger.error(f"Error in task: {e}", exc_info=True)
-            result = {"code": 1, "msg": "Model Training failed.", "result": task.get('speaker', 'unknown')}
-            # 发送结果到队列
-            send_result_with_retry(channel, result)
-    
-
-def send_result_with_retry(channel, result):
-    for attempt in range(5):
-        try:
-            channel.basic_publish(
-                exchange='',
-                routing_key=queue_tran_result,
-                body=json.dumps(result),
-                properties=PROPERTIES  # Make message persistent
-            )
-            logger.info("send message to queue")
-
-            break  # 发送成功，退出循环
-        except pika.exceptions.ChannelClosed:
-            logger.error("Channel closed, reconnecting...")
-            connection, channel = connect_to_rabbitmq()  # 重新连接
-        except Exception as e:
-            logger.error(f"Failed to send result: {e}")
-            time.sleep(2)  # 等待后重试
-
-
-def connect_to_rabbitmq():
-    # RabbitMQ 连接信息
-    rabbitmq_config = {
-        "address": "120.24.144.127",
-        "ports": [5672, 5673, 5674],
-        "username": "admin",
-        "password": "aibeeo",
-        "virtual_host": "device-public"
-    }
-
-    # 连接到 RabbitMQ
-    credentials = pika.PlainCredentials(rabbitmq_config["username"], rabbitmq_config["password"])
-    parameters = pika.ConnectionParameters(
-        host=rabbitmq_config["address"],
-        port=rabbitmq_config["ports"][0],  # 默认使用第一个端口
-        virtual_host=rabbitmq_config["virtual_host"],
-        credentials=credentials
-    )
-
-    try:
-        connection = pika.BlockingConnection(parameters)
-        channel = connection.channel()
-        logger.info("Connected to RabbitMQ successfully.")
-        # 全局消息属性
-        global PROPERTIES
-        PROPERTIES = pika.BasicProperties(content_type='application/json')  # 设置 content_type 为 JSON
-        return connection, channel
-    except Exception as e:
-        logger.error(f"Failed to connect to RabbitMQ: {repr(e)}")
-        return None, None
-    
 
 if __name__ == "__main__":
     try:
-        # 获取实例编号（从启动参数中获取）
-        if len(sys.argv) > 1:
-            instance_id = sys.argv[1]  # 启动时传入的实例编号
-        else:
-            instance_id = "default"  # 如果未传入参数，使用默认值
 
-        # 日志目录（代码中自动创建，无需脚本管理）
-        log_dir = "./logs"
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
-            print(f"Created log directory: {log_dir}")
-        else:
-            print(f"Log directory already exists: {log_dir}")
+        audio_67s = get_url_from_qiniu("model/clone/device/20250211/1000294265/9e2ed287-fe9f-405a-a63e-66134bf04d89.m4a")
+        audio_156s = get_url_from_qiniu("model/clone/device/20250211/1000294265/7b13d1a5-5f63-4d17-81bb-9943da517c73.m4a")
+        audio_175s = get_url_from_qiniu("model/clone/device/20250211/1000294265/9a22e523-cc46-4876-93ab-9798177146a2.m4a")
+        task = {"speaker": "9e2ed287",
+                "lang": "zh_cn",
+                "data_urls": [audio_156s, audio_175s]}
 
-        # 根据实例编号生成日志文件名
-        log_file = f"consumer-{instance_id}.log"
-        log_path = os.path.join(log_dir, log_file)
+        # Train
+        train_model(task)
 
-        file_handler = TimedRotatingFileHandler(
-        filename=log_path,  # 日志文件路径
-        when="midnight",    # 按天分隔（午夜生成新日志文件）
-        interval=1,         # 每 1 天分隔一次
-        backupCount=7,      # 最多保留最近 7 天的日志文件
-        encoding="utf-8"    # 设置编码，避免中文日志乱码
-        )
-        file_handler.suffix = "%Y-%m-%d"  # 设置日志文件后缀格式，例如 server.log.2025-01-09
-        file_handler.setFormatter(logging.Formatter(
-            fmt='[%(asctime)s-%(levelname)s]: %(message)s',
-            datefmt="%Y-%m-%d %H:%M:%S"
-        ))
+        if False:
+            # Inference
+            from GSV_model import GSVModel, ReferenceInfo
+            import GSV_const as C  # 使用已有的常量配置
+            from GSV_const import Route as R
+            M = GSVModel(sovits_model_fp=R.get_sovits_fp(task['speaker']),
+                         gpt_model_fp=R.get_gpt_fp(task['speaker']),
+                         speaker=task['speaker'])
+            ref_fp = os.path.join(C.VOICE_SAMPLE_DIR, task['speaker'], 'asr', 'denoised_ref.list')
+            with open(ref_fp, encoding='utf-8') as fr:
+                line = fr.readlines()[0].strip()
+                ref_default = ReferenceInfo(audio_fp=line.split("|")[0],
+                                            text=line.split("|")[3],
+                                            lang=line.split("|")[2])
+                print(ref_default)
+            wav_sr, wav_arr_int16 = M.predict(target_text="测试",
+                                              target_lang="ZH",
+                                              ref_info=ref_default,
+                                              top_k=20, top_p=0.8, temperature=0.3,
+                                              ref_free=False, no_cut=True)
+            # Audio(wav_arr_int16, rate=wav_sr)
 
-        # 将文件处理器添加到日志记录器中
-        logger.addHandler(file_handler)
-
-        train_consumer()
     except KeyboardInterrupt:
         logger.info("Consumer stopped.")

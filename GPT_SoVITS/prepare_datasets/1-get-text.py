@@ -10,13 +10,14 @@ all_parts = os.environ.get("all_parts")
 os.environ["CUDA_VISIBLE_DEVICES"] = os.environ.get("_CUDA_VISIBLE_DEVICES")
 opt_dir = os.environ.get("opt_dir")
 bert_pretrained_dir = os.environ.get("bert_pretrained_dir")
-is_half = eval(os.environ.get("is_half", "True"))
+import torch
+is_half = eval(os.environ.get("is_half", "True")) and torch.cuda.is_available()
+version = os.environ.get('version', None)
 import sys, numpy as np, traceback, pdb
 import os.path
 from glob import glob
 from tqdm import tqdm
 from text.cleaner import clean_text
-import torch
 from transformers import AutoModelForMaskedLM, AutoTokenizer
 import numpy as np
 
@@ -53,6 +54,8 @@ if os.path.exists(txt_path) == False:
     #     device = "mps"
     else:
         device = "cpu"
+    if os.path.exists(bert_pretrained_dir):...
+    else:raise FileNotFoundError(bert_pretrained_dir)
     tokenizer = AutoTokenizer.from_pretrained(bert_pretrained_dir)
     bert_model = AutoModelForMaskedLM.from_pretrained(bert_pretrained_dir)
     if is_half == True:
@@ -82,8 +85,9 @@ if os.path.exists(txt_path) == False:
         for name, text, lan in data:
             try:
                 name = os.path.basename(name)
+                print(name)
                 phones, word2ph, norm_text = clean_text(
-                    text.replace("%", "-").replace("￥", ","), lan
+                    text.replace("%", "-").replace("￥", ","), lan, version
                 )
                 path_bert = "%s/%s.pt" % (bert_dir, name)
                 if os.path.exists(path_bert) == False and lan == "zh":
@@ -112,6 +116,12 @@ if os.path.exists(txt_path) == False:
         "EN": "en",
         "en": "en",
         "En": "en",
+        "KO": "ko",
+        "Ko": "ko",
+        "ko": "ko",
+        "yue": "yue",
+        "YUE": "yue",
+        "Yue": "yue",
     }
     for line in lines[int(i_part) :: int(all_parts)]:
         try:

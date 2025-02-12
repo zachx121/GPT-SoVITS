@@ -1,7 +1,7 @@
 import sys,os
 
 import torch
-from GPT_SoVITS.GSV_const import LOG_DIR
+from service_GSV.GSV_const import LOG_DIR
 # 推理用的指定模型
 sovits_path = ""
 gpt_path = ""

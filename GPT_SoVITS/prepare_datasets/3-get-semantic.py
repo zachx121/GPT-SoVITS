@@ -8,7 +8,9 @@ os.environ["CUDA_VISIBLE_DEVICES"] = os.environ.get("_CUDA_VISIBLE_DEVICES")
 opt_dir = os.environ.get("opt_dir")
 pretrained_s2G = os.environ.get("pretrained_s2G")
 s2config_path = os.environ.get("s2config_path")
-is_half = eval(os.environ.get("is_half", "True"))
+version=os.environ.get("version","v2")
+import torch
+is_half = eval(os.environ.get("is_half", "True")) and torch.cuda.is_available()
 import math, traceback
 import multiprocessing
 import sys, pdb
@@ -19,7 +21,7 @@ from random import shuffle
 import torch.multiprocessing as mp
 from glob import glob
 from tqdm import tqdm
-import logging, librosa, utils, torch
+import logging, librosa, utils
 from module.models import SynthesizerTrn
 
 logging.getLogger("numba").setLevel(logging.WARNING)
@@ -32,6 +34,8 @@ logging.getLogger("numba").setLevel(logging.WARNING)
 # os.environ["CUDA_VISIBLE_DEVICES"]=sys.argv[5]
 # opt_dir="/data/docker/liujing04/gpt-vits/fine_tune_dataset/%s"%exp_name
 
+if os.path.exists(pretrained_s2G):...
+else:raise FileNotFoundError(pretrained_s2G)
 
 hubert_dir = "%s/4-cnhubert" % (opt_dir)
 semantic_path = "%s/6-name2semantic-%s.tsv" % (opt_dir, i_part)
@@ -49,6 +53,7 @@ if os.path.exists(semantic_path) == False:
         hps.data.filter_length // 2 + 1,
         hps.train.segment_size // hps.data.hop_length,
         n_speakers=hps.data.n_speakers,
+        version=version,
         **hps.model
     )
     if is_half == True:

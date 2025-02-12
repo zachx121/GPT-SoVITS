@@ -22,7 +22,7 @@ from faster_whisper import WhisperModel
 import torch
 
 # PROJ_DIR = "/Users/zhou/0-Codes/GPT-SoVITS"
-PROJ_DIR = os.path.abspath(os.path.join(__file__, "../../../"))
+PROJ_DIR = os.path.abspath(os.path.join(__file__, "../../"))
 print(f"PROJ_DIR: {PROJ_DIR}")
 INP_QUEUE = "queue_self_asr_request"
 
@@ -68,7 +68,7 @@ def connect_to_rabbitmq():
 if __name__ == '__main__':
     # 获取实例编号（从启动参数中获取）
     instance_id = sys.argv[1] if len(sys.argv) > 1 else "default"
-    log_dir = "./logs"
+    log_dir = "logs"
     os.makedirs(log_dir, exist_ok=True)
     # 配置日志
     file_handler = TimedRotatingFileHandler(
