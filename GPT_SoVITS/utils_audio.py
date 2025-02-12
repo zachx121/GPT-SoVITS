@@ -110,6 +110,8 @@ def post2qiniu(localfile, key):
 
 
 def check_on_qiniu(keys, bucket_name=QiniuConst.bucket_name):
+    if isinstance(keys, str):
+        keys = [keys]
     q = Auth(QiniuConst.access_key, QiniuConst.secret_key)
     # 初始化BucketManager
     bucket = BucketManager(q)
@@ -124,8 +126,8 @@ def get_url_from_qiniu(key):
 
 def download_from_qiniu(key, fp):
     private_url = Auth(QiniuConst.access_key, QiniuConst.secret_key).private_download_url('%s/%s' % (QiniuConst.bucket_domain, key), expires=3600)
-    cmd1 = f"mkdir -p {os.path.dirname(fp)}"
-    cmd2 = f"wget --no-check-certificate -O {fp} '{private_url}'"
+    cmd1 = f"mkdir -p '{os.path.dirname(fp)}'"
+    cmd2 = f"wget --no-check-certificate -O '{fp}' '{private_url}'"
     # cmd2 = f"wget -O {fp} '{private_url}'"
     s, o = getstatusoutput(f"{cmd1} && {cmd2}")
     assert s == 0, f"download failed. output:{o}"

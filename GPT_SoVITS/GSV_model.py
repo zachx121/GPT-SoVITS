@@ -9,6 +9,7 @@ logging.basicConfig(format='[%(asctime)s-%(levelname)s-%(funcName)s]: %(message)
                     level=logging.DEBUG)
 
 import time
+from time import time as ttime
 import os
 import numpy as np
 import soundfile as sf
@@ -45,6 +46,9 @@ class ReferenceInfo:
         self.audio_fp = audio_fp
         self.text = text
         self.lang = lang
+
+    def __str__(self):
+        return f"audio_fp='{self.audio_fp}', text='{self.text}', lang='{self.lang}'"
 
 
 class DictToAttrRecursive(dict):
@@ -243,7 +247,7 @@ class GSVModel:
         return phones, bert.to(self.torch_dtype), norm_text
 
     @staticmethod
-    def get_spec(hps, filename):
+    def get_spepc(hps, filename):
         audio = load_audio(filename, int(hps.data.sampling_rate))
         audio = torch.FloatTensor(audio)
         audio_norm = audio
@@ -351,7 +355,7 @@ class GSVModel:
                 0
             )  # .unsqueeze(0)#mq要多unsqueeze一次
             # todo. 继续拆解，怎么实现不带prompt，即ref_free，最终实现前置不用指定一个ref_info
-            refer = self.get_spec(self.hps, ref_wav_path)  # .to(DEVICE)
+            refer = self.get_spepc(self.hps, ref_wav_path)  # .to(DEVICE)
             if self.is_half:
                 refer = refer.half().to(DEVICE)
             else:
@@ -374,6 +378,83 @@ class GSVModel:
             np.int16
         )
 
+    # no_ref不太行，音色完全是默认音色
+    def get_tts_wav_no_ref(self, text, text_language, top_k=20, top_p=0.6, temperature=0.6, no_cut=False):
+        t0 = ttime()
+        text = text.strip("\n")
+        text = replace_consecutive_punctuation(text)
+        if (text[0] not in SPLITS and len(
+            get_first(text)) < 4): text = "。" + text if text_language != "en" else "." + text
+        logging.debug(f">>> Formatted Target Text:\n'{text}'")
+
+        zero_wav = np.zeros(
+            int(self.hps.data.sampling_rate * 0.3),
+            dtype=np.float16 if self.is_half == True else np.float32,
+        )
+
+        t1 = ttime()
+        # 不切，或直接按标点符号切
+        text = text if no_cut else cut5(text)
+        while "\n\n" in text:
+            text = text.replace("\n\n", "\n")
+        logging.debug(f"实际输入的目标文本(切句后):\n{text}")
+
+        texts = text.split("\n")
+        texts = process_text(texts)
+        texts = merge_short_text_in_array(texts, 5)
+        audio_opt = []
+
+        for text in texts:
+            # 解决输入目标文本的空行导致报错的问题
+            if (len(text.strip()) == 0):
+                continue
+            if (text[-1] not in SPLITS): text += "。" if text_language != "en" else "."
+            logging.debug(f"实际输入的目标文本(每句):{text}")
+            phones2, bert2, norm_text2 = self.get_phones_and_bert(text, text_language)
+            logging.debug(f"前端处理后的文本(每句):{norm_text2}")
+            bert = bert2
+            all_phoneme_ids = torch.LongTensor(phones2).to(DEVICE).unsqueeze(0)
+
+            bert = bert.to(DEVICE).unsqueeze(0)
+            all_phoneme_len = torch.tensor([all_phoneme_ids.shape[-1]]).to(DEVICE)
+
+            t2 = ttime()
+            with torch.no_grad():
+                # pred_semantic = t2s_model.model.infer(
+                pred_semantic, idx = self.t2s_model.model.infer_panel(
+                    all_phoneme_ids,
+                    all_phoneme_len,
+                    None,
+                    bert,
+                    # prompt_phone_len=ph_offset,
+                    top_k=top_k,
+                    top_p=top_p,
+                    temperature=temperature,
+                    early_stop_num=self.hz * self.max_sec,
+                )
+            t3 = ttime()
+            # print(pred_semantic.shape,idx)
+            pred_semantic = pred_semantic[:, -idx:].unsqueeze(
+                0
+            )  # .unsqueeze(0)#mq要多unsqueeze一次
+            audio = (
+                self.vq_model.decode(
+                    pred_semantic, torch.LongTensor(phones2).to(DEVICE).unsqueeze(0), refer=None
+                )
+                .detach()
+                .cpu()
+                .numpy()[0, 0]
+            )  ###试试重建不带上prompt部分
+            max_audio = np.abs(audio).max()  # 简单防止16bit爆音
+            if max_audio > 1: audio /= max_audio
+            audio_opt.append(audio)
+            audio_opt.append(zero_wav)
+            t4 = ttime()
+
+        yield self.hps.data.sampling_rate, (np.concatenate(audio_opt, 0) * 32768).astype(
+            np.int16
+        )
+
     # no_cut置为True时注意不要开头就打句号
     def predict(self, target_text, target_lang,
                 ref_info: ReferenceInfo = None,
@@ -381,11 +462,10 @@ class GSVModel:
                 ref_free: bool = False, no_cut: bool = False):
         # Synthesize audio
         if ref_free:
-            synthesis_result = self.get_tts_wav(text=target_text,
-                                                text_language=LANG_MAP[target_lang],
-                                                top_k=top_k, top_p=top_p, temperature=temperature,
-                                                ref_free=ref_free,
-                                                no_cut=no_cut)
+            synthesis_result = self.get_tts_wav_no_ref(text=target_text,
+                                                       text_language=LANG_MAP[target_lang],
+                                                       top_k=top_k, top_p=top_p, temperature=temperature,
+                                                       no_cut=no_cut)
         else:
             synthesis_result = self.get_tts_wav(ref_wav_path=ref_info.audio_fp,
                                                 prompt_text=ref_info.text,
