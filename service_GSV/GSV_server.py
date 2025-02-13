@@ -44,9 +44,9 @@ from urllib.parse import unquote
 from subprocess import getstatusoutput, check_output
 from flask import Flask, request
 
-from service_GSV.GSV_model import GSVModel, ReferenceInfo
-import service_GSV.GSV_const as C
-from service_GSV.GSV_const import Route as R
+from .GSV_model import GSVModel, ReferenceInfo
+from . import GSV_const as C
+from .GSV_const import Route as R
 import multiprocessing as mp
 import utils_audio
 import socket

@@ -21,8 +21,8 @@ import torch
 import traceback
 import LangSegment
 from subprocess import getstatusoutput
-import GSV_const as C
-from service_GSV.GSV_utils import cut5, process_text, merge_short_text_in_array, get_first, replace_consecutive_punctuation, clean_text_inf
+from . import GSV_const as C
+from .GSV_utils import cut5, process_text, merge_short_text_in_array, get_first, replace_consecutive_punctuation, clean_text_inf
 from GPT_SoVITS.AR.models.t2s_lightning_module import Text2SemanticLightningModule
 from GPT_SoVITS.module.models import SynthesizerTrn
 from GPT_SoVITS.feature_extractor import cnhubert
