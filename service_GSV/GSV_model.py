@@ -517,7 +517,7 @@ if __name__ == '__main__':
                               ref_info=ref_audio,
                               top_k=20, top_p=1.0, temperature=1.0,
                               no_cut=True)
-        sf.write(os.path.join("./tmp_model_predict/", f"output_{text.replace(' ','_')[:10]}.wav"), audio, sr)
+        sf.write(os.path.join("./tmp_model_predict/", f"output_len{len(text)}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
 
     long_text = ("The sun rises, painting the sky with hues of gold and pink. The birds chirp merrily, "
                  "greeting the new day. A gentle breeze blows, carrying the fragrance of fresh flowers. "
@@ -537,7 +537,7 @@ if __name__ == '__main__':
                               ref_info=ref_audio,
                               top_k=20, top_p=1.0, temperature=1.0,
                               no_cut=True)
-        sf.write(os.path.join("./tmp_model_predict/", f"output_{text.replace(' ','_')[:10]}.wav"), audio, sr)
+        sf.write(os.path.join("./tmp_model_predict/", f"output_len{len(text)}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
 
     for text in ["こんにちは。"  # 你好。
                  "ごめんください。",  # 有人吗；打扰了。
@@ -550,7 +550,7 @@ if __name__ == '__main__':
                               ref_info=ref_audio,
                               top_k=20, top_p=1.0, temperature=1.0,
                               no_cut=True)
-        sf.write(os.path.join("./tmp_model_predict/", f"output_{text.replace(' ','_')[:10]}.wav"), audio, sr)
+        sf.write(os.path.join("./tmp_model_predict/", f"output_len{len(text)}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
 
     for text in ["안녕하세요.",  # 你好
                  "안녕히 계세요.",  # 再见，留步
@@ -562,7 +562,7 @@ if __name__ == '__main__':
                               ref_info=ref_audio,
                               top_k=20, top_p=1.0, temperature=1.0,
                               no_cut=True)
-        sf.write(os.path.join("./tmp_model_predict/", f"output_{text.replace(' ', '_')[:5]}.wav"), audio, sr)
+        sf.write(os.path.join("./tmp_model_predict/", f"output_len{len(text)}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
 
     sys.exit(0)
 
