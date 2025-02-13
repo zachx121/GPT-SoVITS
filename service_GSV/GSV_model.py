@@ -470,8 +470,9 @@ class GSVModel:
                 # 英文太短也是
                 ref_free = len(target_text.split(" ")) <= 8
             else:
-                # 其他语言（日语韩语）20个字符
-                ref_free = len(target_text) <= 20
+                # 其他语言（日语韩语）20个字符 不太行，强制ref_free=True得了
+                # ref_free = len(target_text) <= 15
+                ref_free = True
             if ref_free:
                 logging.warning(f"合成文本果断，触发强制ref_free (文本: '{target_text}')")
         synthesis_result = self.get_tts_wav(text=target_text, text_language=tgt_lang,
@@ -481,9 +482,12 @@ class GSVModel:
                                             ref_free=ref_free, no_cut=no_cut, **kwargs)
 
         last_sampling_rate, last_audio_data = list(synthesis_result)[-1]
-        cnt = 0  # 如果合成的音频数组方差太小，意味着是空白音或者爆音，最多重试三次，正常方差示例:522218,849305
-        while np.var(last_audio_data) <= 500 and cnt <= 2:
-            logging.warning(f">>> 疑似合成空白音或爆音，第{cnt+1}/3次重试合成")
+        var_hold, cnt, max_cnt = 1000, 0, 2  # 如果合成的音频数组方差太小，意味着是空白音或者爆音，最多重试三次，正常方差示例:522218,849305
+        while np.var(last_audio_data) <= var_hold and cnt <= max_cnt:
+            logging.warning(f">>> 疑似合成空白音或爆音，第{cnt+1}/{max_cnt}次重试合成")
+            if cnt == max_cnt:
+                logging.warning(f">>> 最后一次重试合成 强制ref_free=True")
+                ref_free = True
             synthesis_result = self.get_tts_wav(text=target_text, text_language=tgt_lang,
                                                 ref_wav_path=ref_info.audio_fp,
                                                 prompt_text=ref_info.text, prompt_language=ref_lang,
@@ -510,14 +514,21 @@ if __name__ == '__main__':
                               ref_info=ref_audio,
                               top_k=20, top_p=1.0, temperature=1.0,
                               no_cut=True)
-        sf.write(os.path.join("./tmp_model_predict/", f"output_{time.time():.0f}.wav"), audio, sr)
-    for text in ["测试","测试测试","测试效果","你好","今天天气如何","我是你们的好朋友"]:
+        sf.write(os.path.join("./tmp_model_predict/", f"output_{text.replace(' ','_')[:5]}.wav"), audio, sr)
+
+    for text in ["Test",
+                 "Hello",
+                 "Hello, how are you?",
+                 "Hello hello hello hello hello hello, are you sure",
+                 "Hello hello hello hello hello, are you sure",
+                 "Hello hello hello hello, are you sure",
+                 "Isn't this great?"]:
         sr, audio = M.predict(target_text=text,
-                              target_lang="ZH",
+                              target_lang="EN",
                               ref_info=ref_audio,
                               top_k=20, top_p=1.0, temperature=1.0,
                               no_cut=True)
-        sf.write(os.path.join("./tmp_model_predict/", f"output_{time.time():.0f}.wav"), audio, sr)
+        sf.write(os.path.join("./tmp_model_predict/", f"output_{text.replace(' ','_')[:5]}.wav"), audio, sr)
     sys.exit(0)
 
     # sovits_model = "/Users/bytedance/AudioProject/GPT-SoVITS/SoVITS_weights/XiaoLinShuo_e4_s60.pth"
