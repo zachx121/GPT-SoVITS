@@ -469,13 +469,13 @@ class GSVModel:
     def predict(self, target_text, target_lang,
                 ref_info: ReferenceInfo = None,
                 top_k=20, top_p=1.0, temperature=0.99, speed=1,
-                ref_free: bool = False, no_cut: bool = False):
+                ref_free: bool = False, no_cut: bool = False, **kwargs):
         # Synthesize audio
         synthesis_result = self.get_tts_wav(text=target_text, text_language=LANG_MAP[target_lang],
                                             ref_wav_path=ref_info.audio_fp,
                                             prompt_text=ref_info.text, prompt_language=LANG_MAP[ref_info.lang],
                                             top_k=top_k, top_p=top_p, temperature=temperature, speed=speed,
-                                            ref_free=ref_free, no_cut=no_cut)
+                                            ref_free=ref_free, no_cut=no_cut, **kwargs)
 
         result_list = list(synthesis_result)
 
