@@ -123,7 +123,7 @@ class GSVModel:
     def init_sovits(self):
         # >>> hps init
         global vq_model, hps
-        global vq_model, hps, version, dict_language
+        global vq_model, hps, version
         dict_s2 = torch.load(self.sovits_model_fp, map_location="cpu")
         hps = dict_s2["config"]
         hps = DictToAttrRecursive(hps)
@@ -348,8 +348,9 @@ class GSVModel:
         if prompt_text is None or len(prompt_text) == 0:
             ref_free = True
         t0 = ttime()
-        prompt_language = dict_language[prompt_language]
-        text_language = dict_language[text_language]
+        # 外部传参时已经转换好了
+        # prompt_language = dict_language[prompt_language]
+        # text_language = dict_language[text_language]
 
         if not ref_free:
             prompt_text = prompt_text.strip("\n")
