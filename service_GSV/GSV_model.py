@@ -537,7 +537,7 @@ if __name__ == '__main__':
                               ref_info=ref_audio,
                               top_k=20, top_p=1.0, temperature=1.0,
                               no_cut=True)
-        sf.write(os.path.join("./tmp_model_predict/", f"output_len{len(text)}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
+        sf.write(os.path.join("./tmp_model_predict/", f"output_len{len(text.split(' '))}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
 
     for text in ["こんにちは。"  # 你好。
                  "ごめんください。",  # 有人吗；打扰了。
