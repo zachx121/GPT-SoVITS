@@ -474,7 +474,9 @@ class GSVModel:
                 # ref_free = len(target_text) <= 15
                 ref_free = True
             if ref_free:
-                logging.warning(f"合成文本果断，触发强制ref_free (文本: '{target_text}')")
+                logging.warning(f"合成文本过短，自动触发了强制ref_free (文本: '{target_text}')")
+        if ref_free:
+            logging.warning(f"ref_free=True 推理采用无参考音频模式")
         synthesis_result = self.get_tts_wav(text=target_text, text_language=tgt_lang,
                                             ref_wav_path=ref_info.audio_fp,
                                             prompt_text=ref_info.text, prompt_language=ref_lang,
