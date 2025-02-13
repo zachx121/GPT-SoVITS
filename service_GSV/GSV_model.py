@@ -21,6 +21,7 @@ import torch
 import traceback
 import LangSegment
 from subprocess import getstatusoutput
+import GSV_const as C
 from service_GSV.GSV_utils import cut5, process_text, merge_short_text_in_array, get_first, replace_consecutive_punctuation, clean_text_inf
 from GPT_SoVITS.AR.models.t2s_lightning_module import Text2SemanticLightningModule
 from GPT_SoVITS.module.models import SynthesizerTrn
@@ -39,19 +40,7 @@ DEFAULT_GPT_MODEL_FP = "GPT_SoVITS/pretrained_models/s1bert25hz-2kh-longer-epoch
 DEFAULT_SOVITS_MODEL_FP = "GPT_SoVITS/pretrained_models/s2G488k.pth"
 CNHUBERT_MODEL_FP = "GPT_SoVITS/pretrained_models/chinese-hubert-base"
 BERT_MODEL_FP = "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large"
-# 外部输入的语言参数转换为GSV框架内默认的语言参数
-LANG_MAP = {"EN": "en", "en_us": "en",
-            "JP": "all_ja", "jp_jp": "all_ja",
-            "KO": "all_ko", "ko_kr": "all_ko",
-            "ZH": "all_zh", "zh_cn": "all_zh",
-            "YUE": "all_yue",
-            "ZH_EN": "zh",  # 中英混合识别
-            "JP_EN": "ja",  # 日英混合识别
-            "YUE_EN": "yue",  # 粤英混合识别
-            "KO_EN": "ko",  # 韩英混合识别
-            "AUTO": "auto",
-            "AUTO_YUE": "auto_yue"
-            }
+
 SPLITS = {"，", "。", "？", "！", ",", ".", "?", "!", "~", ":", "：", "—", "…", }
 TMP_DIR = "./#tmp_output"
 os.makedirs(TMP_DIR, exist_ok=True)
@@ -469,21 +458,38 @@ class GSVModel:
     def predict(self, target_text, target_lang,
                 ref_info: ReferenceInfo = None,
                 top_k=20, top_p=1.0, temperature=0.99, speed=1,
-                ref_free: bool = False, no_cut: bool = False):
+                ref_free: bool = None, no_cut: bool = False, **kwargs):
         # Synthesize audio
-        synthesis_result = self.get_tts_wav(text=target_text, text_language=LANG_MAP[target_lang],
+        tgt_lang = target_lang if target_lang in C.LANG_MAP.values() else C.LANG_MAP[target_lang]
+        ref_lang = ref_info.lang if ref_info.lang in C.LANG_MAP.values() else C.LANG_MAP[ref_info.lang]
+        if ref_free is None:
+            if tgt_lang in ["all_zh"]:
+                # 中文文本太短（小于5个字符）就强制触发ref_free
+                ref_free = len(target_text) <= 5
+            elif tgt_lang in ["en"]:
+                # 英文太短也是
+                ref_free = len(target_text.split(" ")) <= 8
+            if ref_free:
+                logging.warning(f"合成文本果断，触发强制ref_free (文本: '{target_text}')")
+        synthesis_result = self.get_tts_wav(text=target_text, text_language=tgt_lang,
                                             ref_wav_path=ref_info.audio_fp,
-                                            prompt_text=ref_info.text, prompt_language=LANG_MAP[ref_info.lang],
+                                            prompt_text=ref_info.text, prompt_language=ref_lang,
                                             top_k=top_k, top_p=top_p, temperature=temperature, speed=speed,
-                                            ref_free=ref_free, no_cut=no_cut)
+                                            ref_free=ref_free, no_cut=no_cut, **kwargs)
 
-        result_list = list(synthesis_result)
+        last_sampling_rate, last_audio_data = list(synthesis_result)[-1]
+        cnt = 0  # 如果合成的音频数组方差太小，意味着是空白音或者爆音，最多重试三次，正常方差示例:522218,849305
+        while np.var(last_audio_data) <= 500 and cnt <= 2:
+            logging.warning(f">>> 疑似合成空白音或爆音，第{cnt+1}/3次重试合成")
+            synthesis_result = self.get_tts_wav(text=target_text, text_language=tgt_lang,
+                                                ref_wav_path=ref_info.audio_fp,
+                                                prompt_text=ref_info.text, prompt_language=ref_lang,
+                                                top_k=top_k, top_p=top_p, temperature=temperature, speed=speed,
+                                                ref_free=ref_free, no_cut=no_cut, **kwargs)
+            last_sampling_rate, last_audio_data = list(synthesis_result)[-1]
+            cnt += 1
 
-        if result_list:
-            last_sampling_rate, last_audio_data = result_list[-1]
-            return last_sampling_rate, last_audio_data
-        else:
-            return None, None
+        return last_sampling_rate, last_audio_data
 
 
 if __name__ == '__main__':

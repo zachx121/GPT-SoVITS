@@ -458,7 +458,7 @@ def train_model(task):
     """
 
     sid = task['speaker']
-    LANG = C.LANG_MAP[task['lang']]
+    LANG = task['lang'] if task['lang'] in C.LANG_MAP.values() else C.LANG_MAP[task['lang']]
     data_urls = task['data_urls']
     post2oss = "1"
 
@@ -491,16 +491,16 @@ def train_model(task):
     logger.info(">>> At step_convert2wav")
     step_convert2wav(INPUT_DIR)
     logger.info(">>> At step_slice")
-    step_slice(INPUT_DIR, SLICE_DIR, min_interval=80 if LANG == "EN" else 100)
+    step_slice(INPUT_DIR, SLICE_DIR, min_interval=80 if LANG.lower() in ["en", "en_us"] else 300)
     logger.info(">>> At step_denoise")
-    step_denoise(SLICE_DIR,DENOISED_DIR)
+    step_denoise(SLICE_DIR, DENOISED_DIR)
     logger.info(">>> At step_asr")
-    step_asr(DENOISED_DIR,ASR_DIR,LANG)
+    step_asr(DENOISED_DIR, ASR_DIR, LANG)
 
     log_audio_statistics(ASR_DIR)
 
     logger.info(">>> At step_apply_pretrains")
-    step_apply_pretrains(ASR_FP,EXP_ROOT_DIR,IS_HALF,sid)
+    step_apply_pretrains(ASR_FP, EXP_ROOT_DIR, IS_HALF, sid)
     logger.info(">>> At step_train_sovits")
     step_train_sovits(sid,8,IS_HALF,EXP_ROOT_DIR,SoVITS_weight_root,TMP_DIR)
     logger.info(">>> At step_train_gpt")
@@ -527,8 +527,6 @@ def train_model(task):
     infos = line.split("|")
     _audio_fp = infos[0]
     _lang = infos[2]
-    _lang_map = {v: k for k, v in C.LANG_MAP.items()}
-    _lang = _lang_map[_lang]
     _text = infos[3]
     with open(R.get_ref_text_fp(sid, C.D_REF_SUFFIX), "w") as fpw:
         fpw.write(f"{_lang}|{_text}")

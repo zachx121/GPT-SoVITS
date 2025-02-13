@@ -1,7 +1,22 @@
 import os
+
+import pylab as p
+
 from service_GSV.GSV_model import ReferenceInfo
 
-LANG_MAP = {"zh_cn": "ZH", "en_us": "EN", "auto": "AUTO"}
+# 外部输入的语言参数转换为GSV框架内默认的语言参数
+LANG_MAP = {"EN": "en", "en_us": "en",
+            "JP": "all_ja", "jp_jp": "all_ja",
+            "KO": "all_ko", "ko_kr": "all_ko",
+            "ZH": "all_zh", "zh_cn": "all_zh",
+            "YUE": "all_yue",
+            "ZH_EN": "zh",  # 中英混合识别
+            "JP_EN": "ja",  # 日英混合识别
+            "YUE_EN": "yue",  # 粤英混合识别
+            "KO_EN": "ko",  # 韩英混合识别
+            "AUTO": "auto",
+            "AUTO_YUE": "auto_yue"
+            }
 D_REF_SUFFIX = "default"
 # LOG_DIR = "logs"
 # VOICE_SAMPLE_DIR = os.path.abspath(os.path.expanduser("./voice_sample/"))
@@ -52,7 +67,7 @@ class InferenceParam:
     speaker: str = None  # 角色音
     text: str = None  # 要合成的文本
     lang: str = None  # 合成音频的语言 (e.g. zh_cn/en_us)
-    use_ref: bool = True  # 推理时是否使用参考音频的情绪，目前还不能置为False必须是True
+    use_ref: bool = None  # 推理时是否使用参考音频的情绪，目前还不能置为False必须是True
     ref_suffix: str = D_REF_SUFFIX  # 当可提供多个参考音频时，指定参考音频的后缀
     nocut: bool = True  # 是否不做切分
     debug: bool = False
@@ -63,7 +78,7 @@ class InferenceParam:
         # eng/cmn/eng/deu/fra/ita/spa
         # {"JP": "all_ja", "ZH": "all_zh", "EN": "en", "ZH_EN": "zh", "JP_EN": "ja", "AUTO": "auto"}
         # lang = self.lang if self.lang in ["JP", "ZH", "EN", "ZH_EN", "JP_EN"] else "AUTO"
-        lang = LANG_MAP.get(self.lang, "AUTO")
+        lang = LANG_MAP.get(self.lang, "auto")
         return lang
 
     @property
@@ -84,7 +99,7 @@ class InferenceParam:
 
     @property
     def ref_free(self):
-        return False if self.use_ref else True
+        return not self.use_ref if self.use_ref is not None else None
 
     def __init__(self, info_dict):
         for key in self.__annotations__.keys():

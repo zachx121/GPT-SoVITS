@@ -438,26 +438,26 @@ def add_default_ref(sid, tryOSS=True):
         logger.info("download finished")
         return None
 
-    asr_fp = os.path.join(C.VOICE_SAMPLE_DIR, sid, "asr", "denoised.list")
-
-    assert os.path.exists(asr_fp)
-    with open(asr_fp, "r", encoding='utf-8') as fr:
-        # 示例如下：
-        # voice_sample/test_silang1636/denoised/ref_audio_default.wav_0000000000_0000127680.wav|denoised|ZH|真是脚带帽在头顶靴上下不？
-        line = fr.readline().strip()
-
-    infos = line.split("|")
-    _audio_fp = infos[0]
-    _lang = infos[2]
-    _lang_map = {v: k for k, v in C.LANG_MAP.items()}
-    _lang = _lang_map[_lang]
-    _text = infos[3]
-
-    cmd1 = f"cp {_audio_fp} {audio_fp}"
-    s1, o1 = getstatusoutput(cmd1)
-    assert s1 == 0, f"execution fail. [cmd] {cmd1} [output] {o1}"
-    with open(text_fp, "w") as fpw:
-        fpw.write(f"{_lang}|{_text}")
+    # asr_fp = os.path.join(C.VOICE_SAMPLE_DIR, sid, "asr", "denoised.list")
+    #
+    # assert os.path.exists(asr_fp)
+    # with open(asr_fp, "r", encoding='utf-8') as fr:
+    #     # 示例如下：
+    #     # voice_sample/test_silang1636/denoised/ref_audio_default.wav_0000000000_0000127680.wav|denoised|ZH|真是脚带帽在头顶靴上下不？
+    #     line = fr.readline().strip()
+    #
+    # infos = line.split("|")
+    # _audio_fp = infos[0]
+    # _lang = infos[2]
+    # _lang_map = {v: k for k, v in C.LANG_MAP.items()}
+    # _lang = _lang_map[_lang]
+    # _text = infos[3]
+    #
+    # cmd1 = f"cp {_audio_fp} {audio_fp}"
+    # s1, o1 = getstatusoutput(cmd1)
+    # assert s1 == 0, f"execution fail. [cmd] {cmd1} [output] {o1}"
+    # with open(text_fp, "w") as fpw:
+    #     fpw.write(f"{_lang}|{_text}")
     # cmd2 = f"echo '{_lang}|{_text}' > {text_fp}"
     # s2, o2 = getstatusoutput(cmd2)
     # assert s2 == 0, f"execution fail. [cmd] {cmd2} [output] {o2}"
@@ -579,7 +579,7 @@ def train_model():
     logger.info(f">>> Start Model Training.")
     # nohup python GPT_SoVITS/GSV_train.py zh_cn ChatTTS_Voice_Clone_4_222rb2j voice_sample/ChatTTS_Voice_Clone_4_222rb2j > ChatTTS_Voice_Clone_4_222rb2j.train 2>&1 &
     # python GPT_SoVITS/GSV_train.py en_us ChatTTS_Voice_Clone_0_Mike_yvmz voice_sample/ChatTTS_Voice_Clone_0_Mike_yvmz 1 > ChatTTS_Voice_Clone_0_Mike_yvmz.train
-    cmd = f"nohup python GPT_SoVITS/GSV_train.py {C.LANG_MAP[lang]} {sid} {data_dir} {post2oss} > {sid}.train 2>&1 &"
+    cmd = f"nohup python GPT_SoVITS/GSV_train.py {lang} {sid} {data_dir} {post2oss} > {sid}.train 2>&1 &"
     logger.info(f"    cmd is {cmd}")
     status, output = getstatusoutput(cmd)
     if status != 0:
