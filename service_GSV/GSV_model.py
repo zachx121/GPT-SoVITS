@@ -464,8 +464,8 @@ class GSVModel:
         ref_lang = ref_info.lang if ref_info.lang in C.LANG_MAP.values() else C.LANG_MAP[ref_info.lang]
         if ref_free is None:
             if tgt_lang in ["all_zh"]:
-                # 中文文本太短（小于5个字符）就强制触发ref_free
-                ref_free = len(target_text) <= 5
+                # 中文文本太短（小于8个字符）就强制触发ref_free
+                ref_free = len(target_text) <= 8
             elif tgt_lang in ["en"]:
                 # 英文太短也是
                 ref_free = len(target_text.split(" ")) <= 8
