@@ -501,6 +501,7 @@ class GSVModel:
         return last_sampling_rate, last_audio_data
 
 
+# python -m service_GSV.GSV_model  # 由于用到了相对路径的import，必须以module形式执行
 if __name__ == '__main__':
     sovits_model = "/root/autodl-fs/models/cxm_from_webui/sovits_xxx_e8_s80.pth"
     gpt_model = "/root/autodl-fs/models/cxm_from_webui/gpt_xxx-e15.ckpt"
@@ -518,6 +519,9 @@ if __name__ == '__main__':
                               no_cut=True)
         sf.write(os.path.join("./tmp_model_predict/", f"output_{text.replace(' ','_')[:5]}.wav"), audio, sr)
 
+    long_text = ("The sun rises, painting the sky with hues of gold and pink. The birds chirp merrily, "
+                 "greeting the new day. A gentle breeze blows, carrying the fragrance of fresh flowers. "
+                 "It's a beautiful start to another wonderful day.")
     for text in ["Test",
                  "Hello",
                  "Apple",
@@ -526,7 +530,8 @@ if __name__ == '__main__':
                  "Hello hello hello hello hello hello, are you sure",
                  "Hello hello hello hello hello, are you sure",
                  "Hello hello hello hello, are you sure",
-                 "Isn't this great?"]:
+                 "Isn't this great?",
+                 long_text]:
         sr, audio = M.predict(target_text=text,
                               target_lang="EN",
                               ref_info=ref_audio,
@@ -553,7 +558,7 @@ if __name__ == '__main__':
                  "안녕하세요 안녕히 계세요.저는 영화를 보고 싶어요",  # 我想看电影。
                  ]:
         sr, audio = M.predict(target_text=text,
-                              target_lang="KR",
+                              target_lang="KO",
                               ref_info=ref_audio,
                               top_k=20, top_p=1.0, temperature=1.0,
                               no_cut=True)
@@ -561,45 +566,3 @@ if __name__ == '__main__':
 
     sys.exit(0)
 
-    # sovits_model = "/Users/bytedance/AudioProject/GPT-SoVITS/SoVITS_weights/XiaoLinShuo_e4_s60.pth"
-    # gpt_model = "/Users/bytedance/AudioProject/GPT-SoVITS/GPT_weights/XiaoLinShuo-e15.ckpt"
-    # ref_audio = ReferenceInfo(audio_fp="/Users/bytedance/AudioProject/voice_sample/XiaoLinShuo/denoised/2_vocals.wav_0005554240_0005717760.wav",
-    #                           text="所以说啊这二十年真的是在斯大林的带领下，把前苏联的经济带上了一个新高度。",
-    #                           lang="ZH")
-    # ref_audio = ReferenceInfo(audio_fp="/Users/bytedance/AudioProject/voice_sample/XiaoLinShuo/denoised/2_vocals.wav_0004883520_0005045120.wav",
-    #                           text="于是一九二八年之后，斯大林的前三个五年计划哈，那可谓是效果拔群。",
-    #                           lang="ZH")
-
-    M = GSVModel(sovits_model_fp=sovits_model, gpt_model_fp=gpt_model)
-
-    sr, audio = M.predict(target_text="您好，我是您的个人助理！您可以问我今天天气如何。",
-                          target_lang="ZH",
-                          ref_info=ref_audio,
-                          top_k=1, top_p=0, temperature=0,
-                          ref_free=False, no_cut=True)
-    sf.write(os.path.join(TMP_DIR, f"output_{time.time():.0f}.wav"), audio, sr)
-
-    sr, audio = M.predict(target_text="我想问一下，关于极端天气防控的问题。",
-                          target_lang="ZH",
-                          ref_info=ref_audio,
-                          top_k=1, top_p=0, temperature=0,
-                          ref_free=False, no_cut=True)
-    sf.write(os.path.join(TMP_DIR, f"output_{time.time():.0f}.wav"), audio, sr)
-
-    sr, audio = M.predict(target_text="Hello sir, I'm your personal assistant. you can ask me about the whether.",
-                          target_lang="EN",
-                          ref_info=ref_audio,
-                          top_k=1, top_p=0, temperature=0,
-                          ref_free=False, no_cut=True)
-    sf.write(os.path.join(TMP_DIR, f"output_ref_{time.time():.0f}_en.wav"), audio, sr)
-
-    long_text = ("The sun rises, painting the sky with hues of gold and pink. The birds chirp merrily, "
-                 "greeting the new day. A gentle breeze blows, carrying the fragrance of fresh flowers. "
-                 "It's a beautiful start to another wonderful day.")
-    for text in long_text.split("\\."):
-        sr, audio = M.predict(target_text=text,
-                              target_lang="EN",
-                              ref_info=ref_audio,
-                              top_k=1, top_p=0, temperature=0,
-                              ref_free=False, no_cut=True)
-        sf.write(os.path.join(TMP_DIR, f"output_ref_{time.time():.0f}_en.wav"), audio, sr)

@@ -813,7 +813,7 @@ def cleanup():
         for p in p_list:
             p.join()
 
-        
+# python -m service_GSV.GSV_server  # 由于用到了相对路径的import，必须以module形式执行
 if __name__ == '__main__':
     logger=config_log()
     mp.set_start_method("spawn")
