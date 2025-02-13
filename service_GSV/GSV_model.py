@@ -502,9 +502,9 @@ class GSVModel:
 
 
 if __name__ == '__main__':
-    sovits_model = "/root/GPT-SoVITS_3rd/SoVITS_weights_v2/cxm_device_1_e8_s80.pth"
-    gpt_model = "/root/GPT-SoVITS_3rd/GPT_weights_v2/cxm_device_1-e15.ckpt"
-    ref_audio = ReferenceInfo(audio_fp="/root/autodl-fs/audio_samples/ref_cxm_1.wav",
+    sovits_model = "/root/autodl-fs/models/cxm_from_webui/sovits_xxx_e8_s80.pth"
+    gpt_model = "/root/autodl-fs/models/cxm_from_webui/gpt_xxx-e15.ckpt"
+    ref_audio = ReferenceInfo(audio_fp="/root/autodl-fs/models/cxm_from_webui/ref_audio.wav",
                               text="大家好，欢迎来到我的直播间，我是你们的主播小美。",
                               lang="ZH")
     M = GSVModel(sovits_model_fp=sovits_model, gpt_model_fp=gpt_model)
@@ -531,6 +531,32 @@ if __name__ == '__main__':
                               top_k=20, top_p=1.0, temperature=1.0,
                               no_cut=True)
         sf.write(os.path.join("./tmp_model_predict/", f"output_{text.replace(' ','_')[:5]}.wav"), audio, sr)
+
+    for text in ["こんにちは。"  # 你好。
+                 "ごめんください。",  # 有人吗；打扰了。
+                 "毎朝ジョギングをします。",  # 我每天早上慢跑。
+                 "何時に会いましょうか。",  # 我们几点见面呢？
+                 "ごめんください 何時に会いましょうか 毎朝ジョギングをします。",  # 有人吗；打扰了。 我们几点见面呢？ 我每天早上慢跑。
+                 ]:
+        sr, audio = M.predict(target_text=text,
+                              target_lang="JP",
+                              ref_info=ref_audio,
+                              top_k=20, top_p=1.0, temperature=1.0,
+                              no_cut=True)
+        sf.write(os.path.join("./tmp_model_predict/", f"output_{text.replace(' ','_')[:5]}.wav"), audio, sr)
+
+    for text in ["안녕하세요.",  # 你好
+                 "안녕히 계세요.",  # 再见，留步
+                 "저는 영화를 보고 싶어요.",
+                 "안녕하세요 안녕히 계세요.저는 영화를 보고 싶어요",  # 我想看电影。
+                 ]:
+        sr, audio = M.predict(target_text=text,
+                              target_lang="KR",
+                              ref_info=ref_audio,
+                              top_k=20, top_p=1.0, temperature=1.0,
+                              no_cut=True)
+        sf.write(os.path.join("./tmp_model_predict/", f"output_{text.replace(' ', '_')[:5]}.wav"), audio, sr)
+
     sys.exit(0)
 
     # sovits_model = "/Users/bytedance/AudioProject/GPT-SoVITS/SoVITS_weights/XiaoLinShuo_e4_s60.pth"
