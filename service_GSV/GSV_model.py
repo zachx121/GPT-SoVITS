@@ -2,8 +2,6 @@
 import logging
 import sys
 
-import api
-import inference_webui
 
 logging.getLogger('matplotlib').setLevel(logging.WARNING)
 logging.getLogger('jieba_fast').setLevel(logging.WARNING)
