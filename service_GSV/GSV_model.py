@@ -520,6 +520,8 @@ if __name__ == '__main__':
 
     for text in ["Test",
                  "Hello",
+                 "Apple",
+                 "Test Hello Apple",
                  "Hello, how are you?",
                  "Hello hello hello hello hello hello, are you sure",
                  "Hello hello hello hello hello, are you sure",
