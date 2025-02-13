@@ -1,5 +1,5 @@
 import os
-from GSV_model import ReferenceInfo
+from service_GSV.GSV_model import ReferenceInfo
 
 LANG_MAP = {"zh_cn": "ZH", "en_us": "EN", "auto": "AUTO"}
 D_REF_SUFFIX = "default"

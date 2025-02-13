@@ -25,8 +25,8 @@ from flask import Flask, request
 import requests as http_requests  # 给 requests 库设置别名
 
 import utils_audio
-import GSV_const as C  # 使用已有的常量配置
-from GSV_const import Route as R
+import service_GSV.GSV_const as C  # 使用已有的常量配置
+from service_GSV.GSV_const import Route as R
 from GSV_model import GSVModel, ReferenceInfo
 import pika
 
