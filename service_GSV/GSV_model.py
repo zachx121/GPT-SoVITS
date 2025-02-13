@@ -469,6 +469,9 @@ class GSVModel:
             elif tgt_lang in ["en"]:
                 # 英文太短也是
                 ref_free = len(target_text.split(" ")) <= 8
+            else:
+                # 其他语言（日语韩语）20个字符
+                ref_free = len(target_text) <= 20
             if ref_free:
                 logging.warning(f"合成文本果断，触发强制ref_free (文本: '{target_text}')")
         synthesis_result = self.get_tts_wav(text=target_text, text_language=tgt_lang,
@@ -493,20 +496,28 @@ class GSVModel:
 
 
 if __name__ == '__main__':
-    sovits_model = "/Users/bytedance/AudioProject/GPT-SoVITS/SoVITS_weights/x_e8_s96.pth"
-    gpt_model = "/Users/bytedance/AudioProject/GPT-SoVITS/GPT_weights/x-e15.ckpt"
-    ref_audio = ReferenceInfo(audio_fp="/Users/bytedance/AudioProject/voice_sample/xn/vocals_as_reference.wav",
-                              text="我想问一下，就是咱们那个疫情防控政策",
+    sovits_model = "/root/GPT-SoVITS_3rd/SoVITS_weights_v2/cxm_device_1_e8_s80.pth"
+    gpt_model = "/root/GPT-SoVITS_3rd/GPT_weights_v2/cxm_device_1-e15.ckpt"
+    ref_audio = ReferenceInfo(audio_fp="/root/autodl-fs/audio_samples/ref_cxm_1.wav",
+                              text="大家好，欢迎来到我的直播间，我是你们的主播小美。",
                               lang="ZH")
     M = GSVModel(sovits_model_fp=sovits_model, gpt_model_fp=gpt_model)
 
-    sr, audio = M.predict(target_text="c测试",
-                          target_lang="ZH",
-                          ref_info=ref_audio,
-                          top_k=1, top_p=0, temperature=0,
-                          ref_free=False, no_cut=True)
-    sf.write(os.path.join("/Users/bytedance/Downloads", f"output_{time.time():.0f}.wav"), audio, sr)
-
+    os.makedirs("tmp_model_predict", exist_ok=True)
+    for text in ["测试","测试测试","测试效果","你好","今天天气如何","我是你们的好朋友"]:
+        sr, audio = M.predict(target_text=text,
+                              target_lang="ZH",
+                              ref_info=ref_audio,
+                              top_k=20, top_p=1.0, temperature=1.0,
+                              no_cut=True)
+        sf.write(os.path.join("./tmp_model_predict/", f"output_{time.time():.0f}.wav"), audio, sr)
+    for text in ["测试","测试测试","测试效果","你好","今天天气如何","我是你们的好朋友"]:
+        sr, audio = M.predict(target_text=text,
+                              target_lang="ZH",
+                              ref_info=ref_audio,
+                              top_k=20, top_p=1.0, temperature=1.0,
+                              no_cut=True)
+        sf.write(os.path.join("./tmp_model_predict/", f"output_{time.time():.0f}.wav"), audio, sr)
     sys.exit(0)
 
     # sovits_model = "/Users/bytedance/AudioProject/GPT-SoVITS/SoVITS_weights/XiaoLinShuo_e4_s60.pth"
