@@ -104,9 +104,11 @@ def download_file(url, target_dir):
                 f.write(response.content)
             logging.info(f"Downloaded: {filename}")
         else:
-            logging.error(f"Failed to download {url}, status code {response.status_code}")
+            # 当状态码不是 200 时，抛出异常
+            raise Exception(f"Failed to download {url}, status code {response.status_code}")
     except Exception as e:
-        logging.error(f"Error downloading {url}: {str(e)}")
+        # 捕获异常并重新抛出
+        raise Exception(f"Error downloading {url}: {str(e)}")
 
 
 def download_files_in_parallel(urls, target_dir, num_workers=4):
