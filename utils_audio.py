@@ -112,7 +112,17 @@ def download_file(url, target_dir):
 def download_files_in_parallel(urls, target_dir, num_workers=4):
     """ 并行下载多个文件 """
     with mp.Pool(num_workers) as pool:
-        pool.starmap(download_file, [(url, target_dir) for url in urls])
+        try:
+            # 异步执行下载任务
+            results = [pool.apply_async(download_file, (url, target_dir)) for url in urls]
+            # 获取每个任务的结果
+            for result in results:
+                result.get()  # 获取结果，如果有异常会在这里抛出
+        except Exception as e:
+            # 当捕获到异常时，终止进程池并重新抛出异常
+            pool.terminate()
+            pool.join()
+            raise Exception(f"Download failed: {str(e)}")
 
 
 from qiniu import Auth, put_file, etag, BucketManager
@@ -167,4 +177,5 @@ def download_from_qiniu(key, fp):
 
 if __name__ == '__main__':
     # print(f"""wget -O 'ChineseASR_Damo.tgz' '{get_url_from_qiniu("ChineseASR_Damo.tgz", domain=QiniuConst.bucket_public_domain)}'""")
+    print(f"""wget -O 'faster_whisper_large_v3.tgz' '{get_url_from_qiniu("models/faster_whisper_large_v3.tgz", domain=QiniuConst.bucket_public_domain)}'""")
     print(check_on_qiniu("model/clone/device/20250211/1000294265/"))
