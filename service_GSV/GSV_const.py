@@ -29,7 +29,7 @@ SOVITS_DIR = os.path.abspath(os.path.expanduser("/root/autodl-fs/SoVITS_weights/
 
 PRETRAIN_BERT_DIR = "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large"
 PRETRAIN_SSL_DIR = "GPT_SoVITS/pretrained_models/chinese-hubert-base"
-PRETRAIN_S2G_FP = "GPT_SoVITS/pretrained_models/s2G488k.pth"
+PRETRAIN_S2G_FP = "GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s2G2333k.pth"
 PRETRAIN_S2D_FP = "GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s2D2333k.pth"
 PRETRAIN_GPT_FP = "GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt"
 
@@ -116,4 +116,6 @@ class InferenceParam:
         return (f"InferenceParam(trace_id={self.trace_id}, speaker={self.speaker}, "
                 f"text={self.text}, lang={self.lang}, use_ref={self.use_ref}, "
                 f"ref_suffix={self.ref_suffix}, nocut={self.nocut}, debug={self.debug}),result_queue_name={self.result_queue_name}")
+
+
 
