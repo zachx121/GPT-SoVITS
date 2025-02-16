@@ -27,6 +27,12 @@ VOICE_SAMPLE_DIR = os.path.abspath(os.path.expanduser("/root/autodl-fs/voice_sam
 GPT_DIR = os.path.abspath(os.path.expanduser("/root/autodl-fs/GPT_weights/"))
 SOVITS_DIR = os.path.abspath(os.path.expanduser("/root/autodl-fs/SoVITS_weights/"))
 
+PRETRAIN_BERT_DIR = "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large"
+PRETRAIN_SSL_DIR = "GPT_SoVITS/pretrained_models/chinese-hubert-base"
+PRETRAIN_S2G_FP = "GPT_SoVITS/pretrained_models/s2G488k.pth"
+PRETRAIN_S2D_FP = "GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s2D2333k.pth"
+PRETRAIN_GPT_FP = "GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt"
+
 
 class Route:
     @staticmethod

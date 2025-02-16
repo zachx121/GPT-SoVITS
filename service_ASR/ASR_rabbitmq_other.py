@@ -88,7 +88,7 @@ if __name__ == '__main__':
 
     # paraformer-zh is a multi-functional asr model
     # use vad, punc, spk or not as you need
-    dir_whisper = os.path.join(PROJ_DIR, 'tools/asr/models/faster_whisper_large_v3')
+    dir_whisper = os.path.join(PROJ_DIR, 'tools/asr/models/faster-whisper-large-v3-local')
     assert os.path.exists(dir_whisper)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     # 直接下载的目录还无法加载，需要根据配置指定到哪一个blobl
