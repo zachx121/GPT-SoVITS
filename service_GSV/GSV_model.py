@@ -22,6 +22,7 @@ import traceback
 import LangSegment
 from subprocess import getstatusoutput
 from . import GSV_const as C
+from .GSV_const import ReferenceInfo
 from .GSV_utils import cut5, process_text, merge_short_text_in_array, get_first, replace_consecutive_punctuation, clean_text_inf
 from GPT_SoVITS.AR.models.t2s_lightning_module import Text2SemanticLightningModule
 from GPT_SoVITS.module.models import SynthesizerTrn
@@ -44,16 +45,6 @@ BERT_MODEL_FP = "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large"
 SPLITS = {"，", "。", "？", "！", ",", ".", "?", "!", "~", ":", "：", "—", "…", }
 TMP_DIR = "./#tmp_output"
 os.makedirs(TMP_DIR, exist_ok=True)
-
-
-class ReferenceInfo:
-    def __init__(self, audio_fp: str, text: str, lang: str):
-        self.audio_fp = audio_fp
-        self.text = text
-        self.lang = lang
-
-    def __str__(self):
-        return f"audio_fp='{self.audio_fp}', text='{self.text}', lang='{self.lang}'"
 
 
 class DictToAttrRecursive(dict):
