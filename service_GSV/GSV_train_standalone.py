@@ -884,25 +884,20 @@ def workflow(inp_params):
         logging.info(f">>> [audio_url]:'{audio_url}' [text_url]:'{text_url}'")
 
 
-# python -m service_GSV.GSV_train_standalone
+# python -m service_GSV.GSV_train_standalone test_cxm zh_cn 'model/clone/device/20250211/1000294265/6f50a0eb-2a46-4973-93d2-2dbe84d0f3a7.m4a'
 if __name__ == '__main__':
+    assert len(sys.argv) >= 4, "python -m service_GSV.GSV_train_standalone <sid> <lang> <data_urls(逗号拼接)>"
+    sid = sys.argv[1]
+    lang = sys.argv[2]
+    data_urls = sys.argv[3].split(",")
+    params = {"speaker_id": sid,
+              "lang": lang,
+              "data_urls": data_urls}
 
-    # params = """
-    # {
-    #   "speaker": "speaker123",  <!-- 发起请求的说话人标识 -->
-    #   "lang": "zh",  <!-- 语言代码，例如 "zh" 表示中文 -->
-    #   "data_urls": [  <!-- 音频数据的URL列表 -->
-    #     "https://example.com/audio1.wav",
-    #     "https://example.com/audio2.wav"
-    #   ]
-    # }
-    # """
-    # params = json.loads(params)
-    # url1 = utils_audio.get_url_from_qiniu("model/clone/device/20250211/1000294265/9a22e523-cc46-4876-93ab-9798177146a2.m4a")
-    url1 = utils_audio.get_url_from_qiniu("model/clone/device/20250211/1000294265/6f50a0eb-2a46-4973-93d2-2dbe84d0f3a7.m4a")
-    params = {"speaker_id": "test_cxm",
-              "lang": "zh_cn",
-              "data_urls": [url1]}
+    # url1 = utils_audio.get_url_from_qiniu("model/clone/device/20250211/1000294265/6f50a0eb-2a46-4973-93d2-2dbe84d0f3a7.m4a")
+    # params = {"speaker_id": "test_cxm",
+    #           "lang": "zh_cn",
+    #           "data_urls": [url1]}
     workflow(params)
 
 

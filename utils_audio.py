@@ -178,6 +178,8 @@ def download_from_qiniu(key, fp):
     assert s == 0, f"download failed. output:{o}"
 
 if __name__ == '__main__':
-    # print(f"""wget -O 'ChineseASR_Damo.tgz' '{get_url_from_qiniu("ChineseASR_Damo.tgz", domain=QiniuConst.bucket_public_domain)}'""")
+    print(f"""wget -O 'G2PWModel.tgz' '{get_url_from_qiniu("models/G2PWModel.tgz", domain=QiniuConst.bucket_public_domain)}'""")
+    print(f"""wget -O 'GSV_pretrained_models.tgz' '{get_url_from_qiniu("models/GSV_pretrained_models.tgz", domain=QiniuConst.bucket_public_domain)}'""")
+    print(f"""wget -O 'ChineseASR_Damo.tgz' '{get_url_from_qiniu("ChineseASR_Damo.tgz", domain=QiniuConst.bucket_public_domain)}'""")
     print(f"""wget -O 'faster_whisper_large_v3.tgz' '{get_url_from_qiniu("models/faster_whisper_large_v3.tgz", domain=QiniuConst.bucket_public_domain)}'""")
-    print(check_on_qiniu("model/clone/device/20250211/1000294265/"))
+    # print(check_on_qiniu("model/clone/device/20250211/1000294265/"))
