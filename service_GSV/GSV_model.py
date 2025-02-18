@@ -445,6 +445,53 @@ class GSVModel:
             np.int16
         )
 
+    @staticmethod
+    def is_pure_noise(wav_arr, threshold_std=0.01, threshold_entropy=0.9, debug=False, auto_cast=True):
+        """
+            noise_list=[]
+            for fn in os.listdir("/Users/zhou/Downloads/abcaudio"):
+                if any(fn.endswith(suffix) for suffix in ['wav','pcm','m4a','mp3']):
+                    print(f">>> processing {fn}")
+                    wav_arr, wav_sr = librosa.load(os.path.join("/Users/zhou/Downloads/abcaudio", fn))
+                    # wav_arr = (np.clip(wav_arr, -1.0, 1.0) * 32767).astype(np.int16)
+                    res = is_pure_noise(wav_arr, debug=True)
+                    if res == True:
+                        print(f">>>>>> 检测到纯噪音 {fn}<<<<<<")
+                        noise_list.append(fn)
+                else:
+                    continue
+            print(noise_list)
+        """
+
+        if auto_cast and wav_arr.dtype == np.int16:
+            wav_arr = wav_arr.astype(np.float32) / 32768.0  # 归一化到 [-1.0, 1.0]
+
+        assert wav_arr.dtype == np.float32
+        # 1. 计算方差（标准化后）
+        y_norm = wav_arr / np.max(np.abs(wav_arr))
+        std_dev = np.std(y_norm)
+
+        # 2. 计算谱熵
+        spec = np.abs(librosa.stft(wav_arr))
+        spec_norm = spec / np.sum(spec)
+        entropy = -np.sum(spec_norm * np.log2(spec_norm + 1e-10))
+        normalized_entropy = entropy / np.log2(spec.shape[0] * spec.shape[1])
+
+        # 3. 计算信噪比估计值 (使用能量比作为估计)
+        signal_power = np.mean(wav_arr ** 2)
+        noise_power_estimate = np.var(wav_arr - librosa.effects.preemphasis(wav_arr))
+        snr_estimate = 10 * np.log10(signal_power / (noise_power_estimate + 1e-10))
+
+        if debug:
+            # 输出特征值，便于调试
+            print(f"std: {std_dev:.4f} entropy:{normalized_entropy:.4f} SNR:{snr_estimate:.4f}dB")
+
+        # 条件判断
+        if std_dev < threshold_std or normalized_entropy > threshold_entropy:
+            return True  # 是纯噪声
+        else:
+            return False  # 不是纯噪声
+
     # no_cut置为True时注意不要开头就打句号
     def predict(self, target_text, target_lang,
                 ref_info: ReferenceInfo = None,
@@ -476,7 +523,7 @@ class GSVModel:
 
         last_sampling_rate, last_audio_data = list(synthesis_result)[-1]
         var_hold, cnt, max_cnt = 1000, 0, 2  # 如果合成的音频数组方差太小，意味着是空白音或者爆音，最多重试三次，正常方差示例:522218,849305
-        while np.var(last_audio_data) <= var_hold and cnt <= max_cnt:
+        while np.var(last_audio_data) <= var_hold or self.is_pure_noise(last_audio_data) and cnt <= max_cnt:
             logging.warning(f">>> 疑似合成空白音或爆音，第{cnt+1}/{max_cnt}次重试合成")
             if cnt == max_cnt:
                 logging.warning(f">>> 最后一次重试合成 强制ref_free=True")
@@ -506,7 +553,7 @@ if __name__ == '__main__':
         sr, audio = M.predict(target_text=text,
                               target_lang="ZH",
                               ref_info=ref_audio,
-                              top_k=20, top_p=1.0, temperature=1.0,
+                              top_k=30, top_p=0.99, temperature=0.6,
                               no_cut=True)
         sf.write(os.path.join("./tmp_model_predict/", f"output_len{len(text)}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
 
