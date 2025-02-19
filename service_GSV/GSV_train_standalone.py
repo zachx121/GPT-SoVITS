@@ -272,7 +272,7 @@ def step_asr(denoised_dir, asr_dir, sid, lang="auto"):
         lang = lang2funasrlang[lang]
     else:
         asr_py = asr_dict["Faster Whisper (多语种)"]["path"]
-        lang2whiserlang = {"en_us": "en", "jp_jp": "ja", "ko_kr": "ko"}
+        lang2whiserlang = {"en_us": "en", "jp_jp": "ja", "ko_kr": "ko", "auto":"auto"}
         lang = lang2whiserlang[lang]
     logger.info(f">>> Step_ASR's asr_py is '{asr_py}' using lang as '{lang}'")
 
@@ -809,7 +809,7 @@ def workflow(inp_params):
     data_urls = inp_params["data_urls"]
     post2oss = inp_params.get("post2oss", "1")
 
-    assert lang in ["en_us", "jp_jp", "ko_kr", "zh_cn"], "语言必须是 en_us/jp_jp/ko_kr/zh_cn"
+    assert lang in ["en_us", "jp_jp", "ko_kr", "zh_cn", "auto"], "语言必须是 en_us/jp_jp/ko_kr/zh_cn/auto"
 
     inp_dir = os.path.join(C.VOICE_SAMPLE_DIR, sid)  # 使用 C 中的 VOICE_SAMPLE_DIR
     logger.info(f">>> Start with ExpName='{sid}', InputDir='{inp_dir}', Language='{lang}'")
