@@ -292,7 +292,7 @@ def model_process(sid: str, event, q_inp):
             wav_sr, wav_arr_int16 = M.predict(target_text=p.text,
                                               target_lang=p.tgt_lang,
                                               ref_info=p.ref_info,
-                                              top_k=20, top_p=1.0, temperature=0.99,
+                                              top_k=30, top_p=0.99, temperature=0.4,
                                               ref_free=p.ref_free, no_cut=p.nocut)
             if p.debug:
                 # 后处理之前的音频
