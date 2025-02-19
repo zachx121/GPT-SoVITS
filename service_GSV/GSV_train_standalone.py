@@ -886,20 +886,24 @@ def workflow(inp_params):
 
 # python -m service_GSV.GSV_train_standalone test_cxm zh_cn 'model/clone/device/20250211/1000294265/6f50a0eb-2a46-4973-93d2-2dbe84d0f3a7.m4a'
 if __name__ == '__main__':
-    assert len(sys.argv) >= 4, "python -m service_GSV.GSV_train_standalone <sid> <lang> <data_urls(逗号拼接)>"
-    sid = sys.argv[1]
-    lang = sys.argv[2]
-    data_urls = sys.argv[3].split(",")
-    params = {"speaker_id": sid,
-              "lang": lang,
-              "data_urls": data_urls}
+    try:
+        assert len(sys.argv) >= 4, "python -m service_GSV.GSV_train_standalone <sid> <lang> <data_urls(逗号拼接)>"
+        sid = sys.argv[1]
+        lang = sys.argv[2]
+        data_urls = sys.argv[3].split(",")
+        params = {"speaker_id": sid,
+                  "lang": lang,
+                  "data_urls": data_urls}
 
-    # url1 = utils_audio.get_url_from_qiniu("model/clone/device/20250211/1000294265/6f50a0eb-2a46-4973-93d2-2dbe84d0f3a7.m4a")
-    # params = {"speaker_id": "test_cxm",
-    #           "lang": "zh_cn",
-    #           "data_urls": [url1]}
-    workflow(params)
-
+        # url1 = utils_audio.get_url_from_qiniu("model/clone/device/20250211/1000294265/6f50a0eb-2a46-4973-93d2-2dbe84d0f3a7.m4a")
+        # params = {"speaker_id": "test_cxm",
+        #           "lang": "zh_cn",
+        #           "data_urls": [url1]}
+        workflow(params)
+        sys.exit(0)
+    except Exception as e:
+        logger.error(f"Error in task: {e}", exc_info=True)
+        sys.exit(1)
 
 
 

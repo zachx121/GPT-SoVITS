@@ -61,7 +61,7 @@ import pyloudnorm as pyln
 app = Flask(__name__, static_folder="./static_folder", static_url_path="")
 
 # 日志目录
-log_dir = "../GPT_SoVITS/logs"
+log_dir = "logs"
 # 日志文件名
 log_file = "server.log"
 queue_service_inference_request_prefix='queue_service_inference_request_'
@@ -98,7 +98,7 @@ def connect_to_rabbitmq():
         "ports": [5672, 5673, 5674],
         "username": "admin",
         "password": "aibeeo",
-        "virtual_host": "device-public"
+        "virtual_host": "test-0208"
     }
     try:
         # 连接到 RabbitMQ

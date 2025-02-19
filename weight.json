@@ -1,8 +1,1 @@
-{
-  "GPT": {
-    "v2": "/root/autodl-fs/models/cxm_from_webui/gpt_xxx-e15.ckpt"
-  },
-  "SoVITS": {
-    "v2": "/root/autodl-fs/models/cxm_from_webui/sovits_xxx_e8_s80.pth"
-  }
-}
+{"GPT": {"v2": "/root/autodl-fs/GPT_weights/ChatTTS_Voice_Clone_Common_Mike/ChatTTS_Voice_Clone_Common_Mike.latest.ckpt"}, "SoVITS": {"v2": "/root/autodl-fs/SoVITS_weights/ChatTTS_Voice_Clone_Common_Mike/ChatTTS_Voice_Clone_Common_Mike.latest.pth"}}
