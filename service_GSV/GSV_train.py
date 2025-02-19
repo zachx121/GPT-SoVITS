@@ -17,17 +17,11 @@ import multiprocessing as mp
 from urllib.parse import unquote
 from subprocess import Popen, getstatusoutput
 
-import numpy as np
-import librosa
-import torch
-from flask import Flask, request
-
 import requests as http_requests  # 给 requests 库设置别名
 
 import utils_audio
 from . import GSV_const as C
 from .GSV_const import Route as R
-from GSV_model import GSVModel, ReferenceInfo
 import pika
 
 assert getstatusoutput("ls tools")[0] == 0, "必须在项目根目录下执行不然会有路径问题 e.g. python GPT_SoVITS/GSV_train.py"
