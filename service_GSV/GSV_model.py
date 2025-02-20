@@ -30,7 +30,7 @@ from GPT_SoVITS.feature_extractor import cnhubert
 from transformers import AutoModelForMaskedLM, AutoTokenizer
 from tools.my_utils import load_audio
 from GPT_SoVITS.module.mel_processing import spectrogram_torch
-assert getstatusoutput("ls tools")[0] == 0, "必须在项目根目录下执行不然会有路径问题 e.g. python GPT_SoVITS/GSV_model.py"
+assert getstatusoutput("ls tools")[0] == 0, "必须在项目根目录下执行不然会有路径问题 e.g. python -m GPT_SoVITS.GSV_model"
 
 from GPT_SoVITS.text import chinese
 from GPT_SoVITS.text import cleaned_text_to_sequence
@@ -43,9 +43,6 @@ CNHUBERT_MODEL_FP = "GPT_SoVITS/pretrained_models/chinese-hubert-base"
 BERT_MODEL_FP = "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large"
 
 SPLITS = {"，", "。", "？", "！", ",", ".", "?", "!", "~", ":", "：", "—", "…", }
-TMP_DIR = "./#tmp_output"
-os.makedirs(TMP_DIR, exist_ok=True)
-
 
 class DictToAttrRecursive(dict):
     def __init__(self, input_dict):
