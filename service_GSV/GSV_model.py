@@ -311,8 +311,6 @@ class GSVModel:
         )
         return spec
 
-
-
     def get_tts_wav(self, text, text_language,
                     ref_wav_path, prompt_text, prompt_language,
                     no_cut=False,
@@ -443,7 +441,7 @@ class GSVModel:
         )
 
     @staticmethod
-    def is_pure_noise(wav_arr, threshold_std=0.01, threshold_entropy=0.9, debug=False, auto_cast=True):
+    def is_pure_noise(wav_arr, threshold_std=0.01, threshold_entropy=0.9, debug=False, auto_cast=True, **kwargs):
         """
             noise_list=[]
             for fn in os.listdir("/Users/zhou/Downloads/abcaudio"):
@@ -489,6 +487,37 @@ class GSVModel:
         else:
             return False  # 不是纯噪声
 
+    @staticmethod
+    def is_abnormal_duration(wav_arr, wav_sr, text, lang, hold=2, **kwargs):
+        get_token_num = lambda t, tlang: len(t.split(" ")) if tlang == "en_us" else len(t)
+        # 根据角色音从 estimate_audio_len.py 里拟合出来的字符数与音频时长公式
+        # a, b, c = (0.0004416210417798762, 0.2990780290048899, 0.5942355219347748)
+        if lang == "en_us":
+            a, b, c = (0.006569098898731953, 0.15735181885149516, 0.814867789439186)
+        elif lang == "zh_cn":
+            # logging.warning(f">>> 语言'{lang}' 对应的时长预估参数未就绪，借用英文的")
+            a, b, c = (0.01596191493148245, -0.15270688734650273, 1.7947908880583727)
+        else:
+            logging.warning(f">>> 语言'{lang}' 对应的时长预估参数未就绪，借用中文的")
+            a, b, c = (0.01596191493148245, -0.15270688734650273, 1.7947908880583727)
+        x = get_token_num(text, lang)
+        y = a * x ** 2 + b * x + c
+        audio_duration = wav_arr.shape[0] / wav_sr
+        # 实际时长与预估时长差距超过3s，认为不合理
+        return abs(audio_duration-y) >= hold
+
+    @staticmethod
+    def is_empty_noise(wav_arr, var_hold=2000, **kwargs):
+        # 如果合成的音频数组方差太小，意味着是空白音或者爆音，最多重试三次，正常方差示例:522218,849305
+        return np.var(wav_arr) <= var_hold
+
+    @staticmethod
+    def audio_check(wav_arr, wav_sr, **kwargs):
+        cond1 = GSVModel.is_pure_noise(wav_arr, **kwargs)
+        cond2 = GSVModel.is_abnormal_duration(wav_arr, wav_sr, **kwargs)
+        cond3 = GSVModel.is_empty_noise(wav_arr, **kwargs)
+        return any([cond1, cond2, cond3])
+
     # no_cut置为True时注意不要开头就打句号
     def predict(self, target_text, target_lang,
                 ref_info: ReferenceInfo = None,
@@ -518,22 +547,23 @@ class GSVModel:
                                             top_k=top_k, top_p=top_p, temperature=temperature, speed=speed,
                                             ref_free=ref_free, no_cut=no_cut, **kwargs)
 
-        last_sampling_rate, last_audio_data = list(synthesis_result)[-1]
-        var_hold, cnt, max_cnt = 1000, 0, 2  # 如果合成的音频数组方差太小，意味着是空白音或者爆音，最多重试三次，正常方差示例:522218,849305
-        while np.var(last_audio_data) <= var_hold or self.is_pure_noise(last_audio_data) and cnt <= max_cnt:
+        wav_sr, wav_arr = list(synthesis_result)[-1]
+        cnt, max_cnt = 0, 2  # 如果合成的音频数组方差太小，意味着是空白音或者爆音，最多重试三次，正常方差示例:522218,849305
+        while self.audio_check(wav_arr, wav_sr) and cnt <= max_cnt:
             logging.warning(f">>> 疑似合成空白音或爆音，第{cnt+1}/{max_cnt}次重试合成")
             if cnt == max_cnt:
                 logging.warning(f">>> 最后一次重试合成 强制ref_free=True")
                 ref_free = True
+            # 这里把温度调高，增加可能性
             synthesis_result = self.get_tts_wav(text=target_text, text_language=tgt_lang,
                                                 ref_wav_path=ref_info.audio_fp,
                                                 prompt_text=ref_info.text, prompt_language=ref_lang,
-                                                top_k=top_k, top_p=top_p, temperature=temperature, speed=speed,
+                                                top_k=top_k, top_p=top_p, temperature=max(0.8, temperature), speed=speed,
                                                 ref_free=ref_free, no_cut=no_cut, **kwargs)
-            last_sampling_rate, last_audio_data = list(synthesis_result)[-1]
+            wav_sr, wav_arr = list(synthesis_result)[-1]
             cnt += 1
 
-        return last_sampling_rate, last_audio_data
+        return wav_sr, wav_arr
 
 
 # python -m service_GSV.GSV_model  # 由于用到了相对路径的import，必须以module形式执行
