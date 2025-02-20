@@ -1,6 +1,7 @@
 # modified from https://github.com/yangdongchao/SoundStorm/blob/master/soundstorm/s1/AR/models/t2s_model.py
 # reference: https://github.com/lifeiteng/vall-e
 import torch
+import logging
 import random
 import numpy as np
 
@@ -432,7 +433,7 @@ class Text2SemanticDecoder(nn.Module):
         x_len = x.shape[1]
         x_attn_mask = torch.zeros((x_len, x_len), dtype=torch.bool)
         stop = False
-        for _ in tqdm(range(1500)):
+        for _ in tqdm(range(1500), disable=logging.getLogger().getEffectiveLevel() >= logging.DEBUG):
             y_emb = self.ar_audio_embedding(y)
             y_pos = self.ar_audio_position(y_emb)
             # x 和逐渐增长的 y 一起输入给模型
@@ -545,7 +546,7 @@ class Text2SemanticDecoder(nn.Module):
             x.device
         )
 
-        for idx in tqdm(range(1500)):
+        for idx in tqdm(range(1500), disable=logging.getLogger().getEffectiveLevel() >= logging.DEBUG):
             if xy_attn_mask is not None:
                 xy_dec, k_cache, v_cache = self.t2s_transformer.process_prompt(xy_pos, xy_attn_mask)
             else:
