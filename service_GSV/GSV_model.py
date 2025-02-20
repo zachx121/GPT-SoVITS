@@ -512,9 +512,9 @@ class GSVModel:
         return np.var(wav_arr) <= var_hold
 
     @staticmethod
-    def audio_check(wav_arr, wav_sr, **kwargs):
+    def audio_check(wav_arr, wav_sr, text, lang, **kwargs):
         cond1 = GSVModel.is_pure_noise(wav_arr, **kwargs)
-        cond2 = GSVModel.is_abnormal_duration(wav_arr, wav_sr, **kwargs)
+        cond2 = GSVModel.is_abnormal_duration(wav_arr, wav_sr, text, lang, **kwargs)
         cond3 = GSVModel.is_empty_noise(wav_arr, **kwargs)
         return any([cond1, cond2, cond3])
 
@@ -524,6 +524,8 @@ class GSVModel:
                 top_k=20, top_p=1.0, temperature=0.99, speed=1,
                 ref_free: bool = None, no_cut: bool = False, **kwargs):
         # Synthesize audio
+        # target_lang是 en_us/zh_cn/jp_jp/kr_ko
+        # tgt_lang是 en/all_zh/all_jp/all_ko
         tgt_lang = target_lang if target_lang in C.LANG_MAP.values() else C.LANG_MAP[target_lang]
         ref_lang = ref_info.lang if ref_info.lang in C.LANG_MAP.values() else C.LANG_MAP[ref_info.lang]
         if ref_free is None:
@@ -549,7 +551,7 @@ class GSVModel:
 
         wav_sr, wav_arr = list(synthesis_result)[-1]
         cnt, max_cnt = 0, 2  # 如果合成的音频数组方差太小，意味着是空白音或者爆音，最多重试三次，正常方差示例:522218,849305
-        while self.audio_check(wav_arr, wav_sr) and cnt <= max_cnt:
+        while self.audio_check(wav_arr, wav_sr, target_text, target_lang) and cnt <= max_cnt:
             logging.warning(f">>> 疑似合成空白音或爆音，第{cnt+1}/{max_cnt}次重试合成")
             if cnt == max_cnt:
                 logging.warning(f">>> 最后一次重试合成 强制ref_free=True")
