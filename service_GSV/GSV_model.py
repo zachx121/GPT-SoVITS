@@ -489,10 +489,10 @@ class GSVModel:
 
     @staticmethod
     def is_abnormal_duration(wav_arr, wav_sr, text, lang, hold=3, **kwargs):
-        get_token_num = lambda t, tlang: len(t.split(" ")) if tlang == "en_us" else len(t)
+        get_token_num = lambda t, tlang: len(t.split(" ")) if tlang in ["en","en_us"] else len(t)
         # 根据角色音从 estimate_audio_len.py 里拟合出来的字符数与音频时长公式
         # a, b, c = (0.0004416210417798762, 0.2990780290048899, 0.5942355219347748)
-        if lang == "en_us":
+        if lang in ["en","en_us"]:  # todo only 'en' should be good enough
             # Mike
             # a, b, c = (0.00288095448943406, 0.22635555061873977, 0.7276428136650496)
             # NinaV2
@@ -510,6 +510,7 @@ class GSVModel:
         x = get_token_num(text, lang)
         y = a * x ** 3 + b * x ** 2 + c * x + d
         audio_duration = wav_arr.shape[0] / wav_sr
+        logging.warning(f">>> lang={lang}, text={text}, 文本长度x={x} 预估音频时长y={y} 实际音频时长:{audio_duration}")
         # 实际时长与预估时长差距超过3s，认为不合理
         return abs(audio_duration-y) >= hold
 
@@ -523,6 +524,12 @@ class GSVModel:
         cond1 = GSVModel.is_pure_noise(wav_arr, **kwargs)
         cond2 = GSVModel.is_abnormal_duration(wav_arr, wav_sr, text, lang, **kwargs)
         cond3 = GSVModel.is_empty_noise(wav_arr, **kwargs)
+        if cond1:
+            logging.warning(f">>> 检测为 is_pure_noise")
+        if cond2:
+            logging.warning(f">>> 检测为 is_abnormal_duration")
+        if cond3:
+            logging.warning(f">>> 检测为 is_empty_noise")
         return any([cond1, cond2, cond3])
 
     # no_cut置为True时注意不要开头就打句号
@@ -559,7 +566,7 @@ class GSVModel:
         wav_sr, wav_arr = list(synthesis_result)[-1]
         cnt, max_cnt = 0, 2  # 如果合成的音频数组方差太小，意味着是空白音或者爆音，最多重试三次，正常方差示例:522218,849305
         while self.audio_check(wav_arr, wav_sr, target_text, target_lang) and cnt <= max_cnt:
-            logging.warning(f">>> 疑似合成空白音或爆音，第{cnt+1}/{max_cnt}次重试合成")
+            logging.warning(f">>> 疑似合成空白音或爆音，第{cnt+1}/{max_cnt+1}次重试合成")
             if cnt == max_cnt:
                 logging.warning(f">>> 最后一次重试合成 强制ref_free=True")
                 ref_free = True
