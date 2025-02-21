@@ -15,7 +15,8 @@ SEP_MAP = {"zh_cn": ["。", "，", "？", "！", ",", "?", "!"],
 
 get_token_num = lambda t, tlang: len(t.split(" ")) if tlang == "en_us" else len(t)
 
-def get_estimate_func(x, y, debug=False):
+
+def get_estimate_func(x, y, debug=False, rank=2):
     x, y = np.array(x), np.array(y)
     # 1. 去掉 x 和 y 中比值最大的两个数据和最小的两个数据
     # 计算 x 和 y 的比值
@@ -35,16 +36,19 @@ def get_estimate_func(x, y, debug=False):
 
     # 2. 用一个二次多项式来拟合 x 和 y 的关系
     # 进行二次多项式拟合
-    coefficients = np.polyfit(x_filtered, y_filtered, 2)
-    a, b, c = coefficients
+    coefficients = np.polyfit(x_filtered, y_filtered, rank)
+    # a, b, c = coefficients
 
     # 生成拟合曲线的 x 值
     x_fit = np.linspace(min(x_filtered), max(x_filtered), 100)
     # 计算拟合曲线的 y 值
-    y_fit = a * x_fit**2 + b * x_fit + c
+    y_fit = np.zeros_like(x_fit)
+    for idx,p in enumerate(coefficients):
+        y_fit = y_fit + p*np.power(x_fit,len(coefficients)-1-idx)
+        # y_fit = a * x_fit**2 + b * x_fit + c
 
     # 打印拟合的系数
-    print(f"二次多项式参数: a,b,c=({a},{b},{c})")
+    print(f"使用 {rank}次多项式拟合，参数依次为: {coefficients}")
     if debug:
         from matplotlib import pyplot as plt
         # 绘制原始数据和拟合曲线
@@ -55,7 +59,7 @@ def get_estimate_func(x, y, debug=False):
         plt.title('Quadratic Fit of Filtered Data')
         plt.legend()
         plt.show()
-    return a, b, c
+    return coefficients
 
 
 # python core/quality_check/estimate_audio_len.py 'test_cxm' 'zh_cn'
@@ -102,13 +106,13 @@ if __name__ == '__main__':
         x_list.append(num_tokens)
         y_list.append(audio_duration)
 
-    a, b, c = get_estimate_func(x_list, y_list)
+    a, b, c, d = get_estimate_func(x_list, y_list, rank=3)
     print(f">>> 基于sid={sid}拟合，按字符数x,预估音频时长y=a*(x)^2+b*x+c")
 
     print(f">>> 识别到不合理的音频有: ")
     for idx, audio in enumerate(audios):
         x = get_token_num(text_list[idx], lang)
-        y = a*x**2+b*x+c
+        y = a*x**3 + b*x**2 + c*x + d
         p = audio.shape[0] / sr
         if abs(y - p) >= 3:
             print(f"    实际耗时:{p:.4f} 预估耗时:{y:.4f} 文本:{text[idx]} ")
@@ -116,4 +120,4 @@ if __name__ == '__main__':
 
     print(f">>> 基于sid={sid}合成的音频，拟合了{len(x_list)}个样本，记字符数x,预估音频时长y=a*(x)^2+b*x+c")
     print(f"    目前英文是空格分词后计算token个数，中文是直接字符数")
-    print(f">>> 二次多项式参数: a,b,c=({a},{b},{c})")
+    print(f">>> 二次多项式参数: a,b,c,d=({a},{b},{c},{d})")
