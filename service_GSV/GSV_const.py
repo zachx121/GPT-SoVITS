@@ -9,6 +9,16 @@ class ReferenceInfo:
         self.text = text
         self.lang = lang
 
+    @staticmethod
+    def from_sid(sid):
+        import subprocess
+        ref_audio_fp = Route.get_ref_audio_fp(sid, D_REF_SUFFIX)
+        ref_lang, ref_text = subprocess.getoutput(f"cat {Route.get_ref_text_fp(sid, D_REF_SUFFIX)}").strip().split("|")
+        ref_info = ReferenceInfo(audio_fp=ref_audio_fp,
+                                 text=ref_text,
+                                 lang=ref_lang)
+        return ref_info
+
     def __str__(self):
         return f"audio_fp='{self.audio_fp}', text='{self.text}', lang='{self.lang}'"
 

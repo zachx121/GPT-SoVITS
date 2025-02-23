@@ -7,7 +7,7 @@ logging.getLogger('matplotlib').setLevel(logging.WARNING)
 logging.getLogger('jieba_fast').setLevel(logging.WARNING)
 logging.basicConfig(format='[%(asctime)s-%(levelname)s-%(funcName)s]: %(message)s',
                     datefmt="%Y-%m-%d %H:%M:%S",
-                    level=logging.DEBUG)
+                    level=logging.INFO)
 
 import re
 import time
@@ -330,12 +330,12 @@ class GSVModel:
         if not ref_free:
             prompt_text = prompt_text.strip("\n")
             if (prompt_text[-1] not in SPLITS): prompt_text += "。" if prompt_language != "en" else "."
-            logging.info(f"实际输入的参考文本: {prompt_text}")
+            logging.debug(f"实际输入的参考文本: {prompt_text}")
         text = text.strip("\n")
         if (text[0] not in SPLITS and len(
             get_first(text)) < 4): text = "。" + text if text_language != "en" else "." + text
 
-        logging.info(f"实际输入的目标文本: {text}")
+        logging.debug(f"实际输入的目标文本: {text}")
         zero_wav = np.zeros(
             int(hps.data.sampling_rate * 0.3),
             dtype=np.float16 if self.is_half == True else np.float32,
@@ -369,7 +369,7 @@ class GSVModel:
         text = text if no_cut else cut5(text)
         while "\n\n" in text:
             text = text.replace("\n\n", "\n")
-        logging.info(f"实际输入的目标文本(切句后): {text}")
+        logging.debug(f"实际输入的目标文本(切句后): {text}")
         texts = text.split("\n")
         texts = process_text(texts)
         texts = merge_short_text_in_array(texts, 5)
@@ -382,9 +382,9 @@ class GSVModel:
             if (len(text.strip()) == 0):
                 continue
             if (text[-1] not in SPLITS): text += "。" if text_language != "en" else "."
-            logging.info(f"实际输入的目标文本(每句): {text}")
+            logging.debug(f"实际输入的目标文本(每句): {text}")
             phones2, bert2, norm_text2 = self.get_phones_and_bert(text, text_language, version)
-            logging.info(f"前端处理后的文本(每句): {norm_text2}")
+            logging.debug(f"前端处理后的文本(每句): {norm_text2}")
             if not ref_free:
                 bert = torch.cat([bert1, bert2], 1)
                 all_phoneme_ids = torch.LongTensor(phones1 + phones2).to(DEVICE).unsqueeze(0)
@@ -489,17 +489,18 @@ class GSVModel:
 
     @staticmethod
     def is_abnormal_duration(wav_arr, wav_sr, text, lang, hold=3, **kwargs):
-        get_token_num = lambda t, tlang: len(t.split(" ")) if tlang in ["en","en_us"] else len(t)
+        lang = lang.lower()
+        get_token_num = lambda t, tlang: len(t.split(" ")) if tlang in ["en", "en_us"] else len(t)
         # 根据角色音从 estimate_audio_len.py 里拟合出来的字符数与音频时长公式
         # a, b, c = (0.0004416210417798762, 0.2990780290048899, 0.5942355219347748)
-        if lang in ["en","en_us"]:  # todo only 'en' should be good enough
+        if lang in ["en", "en_us"]:  # todo only 'en' should be good enough
             # Mike
             # a, b, c = (0.00288095448943406, 0.22635555061873977, 0.7276428136650496)
             # NinaV2
             # a, b, c = (0.006569098898731953, 0.15735181885149516, 0.814867789439186)
             # 基于6个英文角色音的训练样本的ASR结果
             a, b, c, d = (0.0016008349175017078, -0.06599824444946428, 0.9600194411934183, -0.40882416983497394)
-        elif lang == "zh_cn":
+        elif lang in ["zh", "zh_cn"]:
             # test_cxm
             # a, b, c = (0.01596191493148245, -0.15270688734650273, 1.7947908880583727)
             # ChatTTS_Voice_Clone_User_3951_20250123010229136_x8bf (cxm)
@@ -508,11 +509,17 @@ class GSVModel:
             logging.warning(f">>> 语言'{lang}' 对应的时长预估参数未就绪，借用中文的")
             a, b, c, d = (1.4589877459468358e-05, -0.003125013569752014, 0.2354471444393487, -1.7437911823924999)
         x = get_token_num(text, lang)
-        y = a * x ** 3 + b * x ** 2 + c * x + d
-        audio_duration = wav_arr.shape[0] / wav_sr
-        logging.warning(f">>> lang={lang}, text={text}, 文本长度x={x} 预估音频时长y={y} 实际音频时长:{audio_duration}")
-        # 实际时长与预估时长差距超过3s，认为不合理
-        return abs(audio_duration-y) >= hold
+        p = round(a * x ** 3 + b * x ** 2 + c * x + d, 4)
+        y = round(wav_arr.shape[0] / wav_sr, 4)
+        # 如果文本过长的话，跳过检测，拟合公式不准的
+        if x >= 20:
+            logging.warning(f">>> 检测到合成长文本(英文20个单词 中文20个字):{x} 跳过时长检测")
+            return False, 0, y
+        else:
+            # 如果实际时长与预估时长差距超过3s，认为是异常音频
+            logging.debug(f">>> lang={lang}, text={text}, 文本长度x={x} 预估音频时长y={p} 实际音频时长:{y}")
+            return abs(y-p) >= hold, p, y
+
 
     @staticmethod
     def is_empty_noise(wav_arr, var_hold=2000, **kwargs):
@@ -522,12 +529,12 @@ class GSVModel:
     @staticmethod
     def audio_check(wav_arr, wav_sr, text, lang, **kwargs):
         cond1 = GSVModel.is_pure_noise(wav_arr, **kwargs)
-        cond2 = GSVModel.is_abnormal_duration(wav_arr, wav_sr, text, lang, **kwargs)
+        cond2, p, y = GSVModel.is_abnormal_duration(wav_arr, wav_sr, text, lang, **kwargs)
         cond3 = GSVModel.is_empty_noise(wav_arr, **kwargs)
         if cond1:
             logging.warning(f">>> 检测为 is_pure_noise")
         if cond2:
-            logging.warning(f">>> 检测为 is_abnormal_duration")
+            logging.warning(f">>> 检测为 is_abnormal_duration (预测时长={p} 实际时长={y})")
         if cond3:
             logging.warning(f">>> 检测为 is_empty_noise")
         return any([cond1, cond2, cond3])
@@ -582,68 +589,102 @@ class GSVModel:
         return wav_sr, wav_arr
 
 
-# python -m service_GSV.GSV_model  # 由于用到了相对路径的import，必须以module形式执行
+# 由于用到了相对路径的import，必须以module形式执行
+# python -m service_GSV.GSV_model <sid> <lang>
+# -- 这个没就绪 python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_KellyV2 en
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_PhenixV2 en
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_OrionV2 en
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_MarthaV2 en
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_ZoeV2 en
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_NinaV2 en
 if __name__ == '__main__':
-    sovits_model = "/root/autodl-fs/models/cxm_from_webui/sovits_xxx_e8_s80.pth"
-    gpt_model = "/root/autodl-fs/models/cxm_from_webui/gpt_xxx-e15.ckpt"
-    ref_audio = ReferenceInfo(audio_fp="/root/autodl-fs/models/cxm_from_webui/ref_audio.wav",
-                              text="大家好，欢迎来到我的直播间，我是你们的主播小美。",
-                              lang="ZH")
-    M = GSVModel(sovits_model_fp=sovits_model, gpt_model_fp=gpt_model)
+    if len(sys.argv) >= 3:
+        sid = sys.argv[1]
+        lang = sys.argv[2]
+        from .GSV_const import Route as R
+        sovits_model = R.get_sovits_fp(sid)
+        gpt_model = R.get_gpt_fp(sid)
+        M = GSVModel(sovits_model_fp=sovits_model, gpt_model_fp=gpt_model)
 
-    os.makedirs("tmp_model_predict", exist_ok=True)
-    for text in ["测试","测试测试","测试效果","你好","今天天气如何","我是你们的好朋友"]:
-        sr, audio = M.predict(target_text=text,
-                              target_lang="ZH",
-                              ref_info=ref_audio,
-                              top_k=30, top_p=0.99, temperature=0.6,
-                              no_cut=True)
-        sf.write(os.path.join("./tmp_model_predict/", f"output_len{len(text)}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
+        ref_info = ReferenceInfo.from_sid(sid)
+        opt_dir = f"./audio_test/{sid}"
+        audio_list = []
+        with open("./core/quality_check/text_en_us.txt", "r", encoding="utf-8") as fr:
+            lines = [i.strip() for i in fr.readlines()]
+            for line in lines:
+                print(f">>> process: {line}")
+                sr, audio = M.predict(target_text=line,
+                                      target_lang=lang,
+                                      ref_info=ref_info,
+                                      top_k=30, top_p=0.99, temperature=0.6,
+                                      no_cut=True)
+                opt_fp = os.path.join(opt_dir, f"audio_{time.time():.0f}_{line.replace(' ','_')[:5]}.wav")
+                os.makedirs(os.path.dirname(opt_fp), exist_ok=True)
+                audio_list.append(audio)
+                sf.write(opt_fp, audio, sr)
 
-    long_text = ("The sun rises, painting the sky with hues of gold and pink. The birds chirp merrily, "
-                 "greeting the new day. A gentle breeze blows, carrying the fragrance of fresh flowers. "
-                 "It's a beautiful start to another wonderful day.")
-    for text in ["Test",
-                 "Hello",
-                 "Apple",
-                 "Test Hello Apple",
-                 "Hello, how are you?",
-                 "Hello hello hello hello hello hello, are you sure",
-                 "Hello hello hello hello hello, are you sure",
-                 "Hello hello hello hello, are you sure",
-                 "Isn't this great?",
-                 long_text]:
-        sr, audio = M.predict(target_text=text,
-                              target_lang="EN",
-                              ref_info=ref_audio,
-                              top_k=20, top_p=1.0, temperature=1.0,
-                              no_cut=True)
-        sf.write(os.path.join("./tmp_model_predict/", f"output_len{len(text.split(' '))}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
+        sf.write(os.path.join(opt_dir, "res_audio.wav"), np.hstack(audio_list), sr)
+    else:
+        sovits_model = "/root/autodl-fs/models/cxm_from_webui/sovits_xxx_e8_s80.pth"
+        gpt_model = "/root/autodl-fs/models/cxm_from_webui/gpt_xxx-e15.ckpt"
+        ref_audio = ReferenceInfo(audio_fp="/root/autodl-fs/models/cxm_from_webui/ref_audio.wav",
+                                  text="大家好，欢迎来到我的直播间，我是你们的主播小美。",
+                                  lang="ZH")
+        M = GSVModel(sovits_model_fp=sovits_model, gpt_model_fp=gpt_model)
 
-    for text in ["こんにちは。"  # 你好。
-                 "ごめんください。",  # 有人吗；打扰了。
-                 "毎朝ジョギングをします。",  # 我每天早上慢跑。
-                 "何時に会いましょうか。",  # 我们几点见面呢？
-                 "ごめんください 何時に会いましょうか 毎朝ジョギングをします。",  # 有人吗；打扰了。 我们几点见面呢？ 我每天早上慢跑。
-                 ]:
-        sr, audio = M.predict(target_text=text,
-                              target_lang="JP",
-                              ref_info=ref_audio,
-                              top_k=20, top_p=1.0, temperature=1.0,
-                              no_cut=True)
-        sf.write(os.path.join("./tmp_model_predict/", f"output_len{len(text)}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
+        os.makedirs("tmp_model_predict", exist_ok=True)
+        for text in ["测试","测试测试","测试效果","你好","今天天气如何","我是你们的好朋友"]:
+            sr, audio = M.predict(target_text=text,
+                                  target_lang="ZH",
+                                  ref_info=ref_audio,
+                                  top_k=30, top_p=0.99, temperature=0.6,
+                                  no_cut=True)
+            sf.write(os.path.join("./tmp_model_predict/", f"output_len{len(text)}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
 
-    for text in ["안녕하세요.",  # 你好
-                 "안녕히 계세요.",  # 再见，留步
-                 "저는 영화를 보고 싶어요.",
-                 "안녕하세요 안녕히 계세요.저는 영화를 보고 싶어요",  # 我想看电影。
-                 ]:
-        sr, audio = M.predict(target_text=text,
-                              target_lang="KO",
-                              ref_info=ref_audio,
-                              top_k=20, top_p=1.0, temperature=1.0,
-                              no_cut=True)
-        sf.write(os.path.join("./tmp_model_predict/", f"output_len{len(text)}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
+        long_text = ("The sun rises, painting the sky with hues of gold and pink. The birds chirp merrily, "
+                     "greeting the new day. A gentle breeze blows, carrying the fragrance of fresh flowers. "
+                     "It's a beautiful start to another wonderful day.")
+        for text in ["Test",
+                     "Hello",
+                     "Apple",
+                     "Test Hello Apple",
+                     "Hello, how are you?",
+                     "Hello hello hello hello hello hello, are you sure",
+                     "Hello hello hello hello hello, are you sure",
+                     "Hello hello hello hello, are you sure",
+                     "Isn't this great?",
+                     long_text]:
+            sr, audio = M.predict(target_text=text,
+                                  target_lang="EN",
+                                  ref_info=ref_audio,
+                                  top_k=20, top_p=1.0, temperature=1.0,
+                                  no_cut=True)
+            sf.write(os.path.join("./tmp_model_predict/", f"output_len{len(text.split(' '))}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
 
-    sys.exit(0)
+        for text in ["こんにちは。"  # 你好。
+                     "ごめんください。",  # 有人吗；打扰了。
+                     "毎朝ジョギングをします。",  # 我每天早上慢跑。
+                     "何時に会いましょうか。",  # 我们几点见面呢？
+                     "ごめんください 何時に会いましょうか 毎朝ジョギングをします。",  # 有人吗；打扰了。 我们几点见面呢？ 我每天早上慢跑。
+                     ]:
+            sr, audio = M.predict(target_text=text,
+                                  target_lang="JP",
+                                  ref_info=ref_audio,
+                                  top_k=20, top_p=1.0, temperature=1.0,
+                                  no_cut=True)
+            sf.write(os.path.join("./tmp_model_predict/", f"output_len{len(text)}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
+
+        for text in ["안녕하세요.",  # 你好
+                     "안녕히 계세요.",  # 再见，留步
+                     "저는 영화를 보고 싶어요.",
+                     "안녕하세요 안녕히 계세요.저는 영화를 보고 싶어요",  # 我想看电影。
+                     ]:
+            sr, audio = M.predict(target_text=text,
+                                  target_lang="KO",
+                                  ref_info=ref_audio,
+                                  top_k=20, top_p=1.0, temperature=1.0,
+                                  no_cut=True)
+            sf.write(os.path.join("./tmp_model_predict/", f"output_len{len(text)}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
+
+        sys.exit(0)
 
