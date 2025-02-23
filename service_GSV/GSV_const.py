@@ -19,6 +19,11 @@ class ReferenceInfo:
                                  lang=ref_lang)
         return ref_info
 
+    @staticmethod
+    def from_oss(sid):
+        # todo
+        pass
+
     def __str__(self):
         return f"audio_fp='{self.audio_fp}', text='{self.text}', lang='{self.lang}'"
 
