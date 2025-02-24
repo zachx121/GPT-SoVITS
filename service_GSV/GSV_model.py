@@ -95,6 +95,7 @@ class GSVModel:
         self.tokenizer, self.bert_model = self.init_bert()
 
         self.torch_dtype = torch.float16 if self.is_half else torch.float32
+        self.ref_info, self.ref_wav_int16, self.ref_sr = None, None, None
 
 
     # api.py/change_sovits_weights
@@ -285,7 +286,8 @@ class GSVModel:
             bert = torch.cat(bert_list, dim=1)
             phones = sum(phones_list, [])
             norm_text = ''.join(norm_text_list)
-
+        else:
+            raise Exception(f"GSV_model内部使用了异常语言: '{language}'")
         return phones, bert.to(self.torch_dtype), norm_text
 
     @staticmethod
@@ -521,7 +523,6 @@ class GSVModel:
             logging.debug(f">>> lang={lang}, text={text}, 文本长度x={x} 预估音频时长y={p} 实际音频时长:{y}")
             return abs(y-p) >= hold, p, y
 
-
     @staticmethod
     def is_empty_noise(wav_arr, var_hold=2000, **kwargs):
         # 如果合成的音频数组方差太小，意味着是空白音或者爆音，最多重试三次，正常方差示例:522218,849305
@@ -535,10 +536,41 @@ class GSVModel:
         if cond1:
             logging.warning(f">>> 检测为 is_pure_noise")
         if cond2:
-            logging.warning(f">>> 检测为 is_abnormal_duration (预测时长={p} 实际时长={y})")
+            logging.warning(f">>> 检测为 is_abnormal_duration (预测时长={p} 实际时长={y} lang='{lang}' text='{text}' )")
         if cond3:
             logging.warning(f">>> 检测为 is_empty_noise")
         return any([cond1, cond2, cond3])
+
+    # 检测是否为参考音频泄露
+    def is_ref_leakage(self, wav_arr, wav_sr, ref_info: ReferenceInfo):
+        target_text = ref_info.text
+        tgt_lang = ref_info.lang if ref_info.lang in C.LANG_MAP.values() else C.LANG_MAP[ref_info.lang]
+        ref_lang = ref_info.lang if ref_info.lang in C.LANG_MAP.values() else C.LANG_MAP[ref_info.lang]
+        if self.ref_info is None:
+            # 第一次调用时推理一下参考音频
+            logging.warning(f">>> 第一次推理，检测时需要先推理一次参考音频 ")
+            self.ref_info = ref_info
+            synthesis_result = self.get_tts_wav(text=target_text, text_language=tgt_lang,
+                                                ref_wav_path=ref_info.audio_fp,
+                                                prompt_text=ref_info.text, prompt_language=ref_lang,
+                                                top_k=30, top_p=0.99, temperature=0.4, speed=1,
+                                                ref_free=False, no_cut=True)
+            self.ref_sr, self.ref_wav_int16 = list(synthesis_result)[-1]
+        elif any([ref_info.text != self.ref_info.text,
+                  ref_info.audio_fp != self.ref_info.audio_fp,
+                  ref_info.lang != self.ref_info.lang]):
+            # 参考音频和之前记录的有区别,视为第一次调用，重新推理参考音频
+            logging.warning(f">>> 参考音频信息变动，检测时需要先推理一次参考音频 ")
+            self.ref_info = ref_info
+            synthesis_result = self.get_tts_wav(text=target_text, text_language=tgt_lang,
+                                                ref_wav_path=ref_info.audio_fp,
+                                                prompt_text=ref_info.text, prompt_language=ref_lang,
+                                                top_k=30, top_p=0.99, temperature=0.4, speed=1,
+                                                ref_free=False, no_cut=True)
+            self.ref_sr, self.ref_wav_int16 = list(synthesis_result)[-1]
+
+        # ref_wav_d = self.ref_wav_int16.shape[0] / self.ref_sr
+        return wav_arr.shape[0] == self.ref_wav_int16.shape[0]
 
     # no_cut置为True时注意不要开头就打句号
     def predict(self, target_text, target_lang,
@@ -563,18 +595,28 @@ class GSVModel:
                 ref_free = True
             if ref_free:
                 logging.warning(f"语言{tgt_lang} 合成文本过短，自动触发了强制ref_free (文本: '{target_text}')")
-        if ref_free:
-            logging.warning(f"ref_free=True 推理采用无参考音频模式")
+        elif ref_free:
+            logging.info(f"ref_free=True 推理采用无参考音频模式")
         synthesis_result = self.get_tts_wav(text=target_text, text_language=tgt_lang,
                                             ref_wav_path=ref_info.audio_fp,
                                             prompt_text=ref_info.text, prompt_language=ref_lang,
                                             top_k=top_k, top_p=top_p, temperature=temperature, speed=speed,
                                             ref_free=ref_free, no_cut=no_cut, **kwargs)
 
-        wav_sr, wav_arr = list(synthesis_result)[-1]
+        wav_sr, wav_arr_int16 = list(synthesis_result)[-1]
+        if self.is_ref_leakage(wav_arr_int16, wav_sr, ref_info):
+            logging.error(f">>> 严重问题 检测到参考音频泄露，直接按无参模式推理并返回 文本:{target_text} {target_lang}")
+            synthesis_result = self.get_tts_wav(text=target_text, text_language=tgt_lang,
+                                                ref_wav_path=ref_info.audio_fp,
+                                                prompt_text=ref_info.text, prompt_language=ref_lang,
+                                                top_k=top_k, top_p=top_p, temperature=temperature, speed=speed,
+                                                ref_free=True, no_cut=no_cut, **kwargs)
+            wav_sr, wav_arr_int16 = list(synthesis_result)[-1]
+            return wav_sr, wav_arr_int16
+
         cnt, max_cnt = 0, 1  # 如果合成的音频数组方差太小，意味着是空白音或者爆音，最多重试三次，正常方差示例:522218,849305
-        while self.audio_check(wav_arr, wav_sr, target_text, target_lang) and cnt <= max_cnt:
-            logging.warning(f">>> 疑似合成空白音或爆音，第{cnt+1}/{max_cnt+1}次重试合成")
+        while self.audio_check(wav_arr_int16, wav_sr, target_text, target_lang) and cnt <= max_cnt:
+            logging.warning(f">>> 疑似异常音频，第{cnt+1}/{max_cnt+1}次重试合成")
             if cnt == max_cnt:
                 logging.warning(f">>> 最后一次重试合成 强制ref_free=True")
                 ref_free = True
@@ -584,10 +626,19 @@ class GSVModel:
                                                 prompt_text=ref_info.text, prompt_language=ref_lang,
                                                 top_k=top_k, top_p=top_p, temperature=max(0.8, temperature), speed=speed,
                                                 ref_free=ref_free, no_cut=no_cut, **kwargs)
-            wav_sr, wav_arr = list(synthesis_result)[-1]
+            wav_sr, wav_arr_int16 = list(synthesis_result)[-1]
             cnt += 1
-
-        return wav_sr, wav_arr
+            if self.is_ref_leakage(wav_arr_int16, wav_sr, ref_info):
+                logging.error(
+                    f">>> 严重问题 检测到参考音频泄露，直接按无参模式推理并返回 文本:{target_text} {target_lang}")
+                synthesis_result = self.get_tts_wav(text=target_text, text_language=tgt_lang,
+                                                    ref_wav_path=ref_info.audio_fp,
+                                                    prompt_text=ref_info.text, prompt_language=ref_lang,
+                                                    top_k=top_k, top_p=top_p, temperature=temperature, speed=speed,
+                                                    ref_free=True, no_cut=no_cut, **kwargs)
+                wav_sr, wav_arr_int16 = list(synthesis_result)[-1]
+                return wav_sr, wav_arr_int16
+        return wav_sr, wav_arr_int16
 
 
 # 由于用到了相对路径的import，必须以module形式执行
@@ -603,6 +654,7 @@ class GSVModel:
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_NinaV2 en
 if __name__ == '__main__':
     if len(sys.argv) >= 3:
+        os.environ["TOKENIZERS_PARALLELISM"]="false"
         sid = sys.argv[1]
         lang = sys.argv[2]
         ref = sys.argv[3] if len(sys.argv) >= 4 else C.D_REF_SUFFIX
@@ -623,7 +675,14 @@ if __name__ == '__main__':
                                       ref_info=ref_info,
                                       top_k=30, top_p=0.99, temperature=0.6,
                                       no_cut=True)
-                opt_fp = os.path.join(opt_dir, f"audio_{time.time():.0f}_{line.replace(' ','_')[:5]}.wav")
+                is_leak = M.is_ref_leakage(audio, sr, ref_info)
+                is_abnormal = M.audio_check(wav_arr=audio, wav_sr=sr, text=line, lang=lang)
+                if is_leak:
+                    opt_fp = os.path.join(opt_dir, f"LEAK_audio_{time.time():.0f}_{line.replace(' ', '_')[:5]}.wav")
+                elif is_abnormal:
+                    opt_fp = os.path.join(opt_dir, f"ABNORMAL_audio_{time.time():.0f}_{line.replace(' ', '_')[:5]}.wav")
+                else:
+                    opt_fp = os.path.join(opt_dir, f"audio_{time.time():.0f}_{line.replace(' ','_')[:5]}.wav")
                 os.makedirs(os.path.dirname(opt_fp), exist_ok=True)
                 audio_list.append(audio)
                 sf.write(opt_fp, audio, sr)

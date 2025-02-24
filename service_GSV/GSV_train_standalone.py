@@ -885,6 +885,7 @@ def workflow(inp_params):
 
 
 # python -m service_GSV.GSV_train_standalone test_cxm zh_cn 'model/clone/device/20250211/1000294265/6f50a0eb-2a46-4973-93d2-2dbe84d0f3a7.m4a'
+# python -m service_GSV.GSV_train_standalone user_0 zh_cn 'http://resource.aisounda.cn/tmp/92427149-498c-443e-9186-b50a465c2d9e.m4a?e=1740426999&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:nMwvHciW5lne6VErxDJH3vw-5xA='
 # python -m service_GSV.GSV_train_standalone ChatTTS_Voice_Clone_Common_KellyV2 en_us 'http://resource.aisounda.cn/model%2Fclone%2Fself%2F701c5a35-0e7f-4832-a805-72f3c93ea007.m4a?e=1740386407&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:MsdLRnmCo5YajmN8maURh3-yCkI='
 if __name__ == '__main__':
     try:
