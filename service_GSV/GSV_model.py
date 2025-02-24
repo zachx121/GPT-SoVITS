@@ -562,7 +562,7 @@ class GSVModel:
                 # ref_free = len(target_text) <= 15
                 ref_free = True
             if ref_free:
-                logging.warning(f"合成文本过短，自动触发了强制ref_free (文本: '{target_text}')")
+                logging.warning(f"语言{tgt_lang} 合成文本过短，自动触发了强制ref_free (文本: '{target_text}')")
         if ref_free:
             logging.warning(f"ref_free=True 推理采用无参考音频模式")
         synthesis_result = self.get_tts_wav(text=target_text, text_language=tgt_lang,
@@ -572,7 +572,7 @@ class GSVModel:
                                             ref_free=ref_free, no_cut=no_cut, **kwargs)
 
         wav_sr, wav_arr = list(synthesis_result)[-1]
-        cnt, max_cnt = 0, 2  # 如果合成的音频数组方差太小，意味着是空白音或者爆音，最多重试三次，正常方差示例:522218,849305
+        cnt, max_cnt = 0, 1  # 如果合成的音频数组方差太小，意味着是空白音或者爆音，最多重试三次，正常方差示例:522218,849305
         while self.audio_check(wav_arr, wav_sr, target_text, target_lang) and cnt <= max_cnt:
             logging.warning(f">>> 疑似合成空白音或爆音，第{cnt+1}/{max_cnt+1}次重试合成")
             if cnt == max_cnt:
@@ -593,8 +593,11 @@ class GSVModel:
 # 由于用到了相对路径的import，必须以module形式执行
 # python -m service_GSV.GSV_model <sid> <lang>
 # -- 这个没就绪 python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_KellyV2 en
+# python -m service_GSV.GSV_model test_cxm en
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_PhenixV2 en
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_PhenixV2 en manual
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_OrionV2 en
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_OrionV2.1 en
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_MarthaV2 en
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_ZoeV2 en
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_NinaV2 en

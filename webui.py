@@ -241,6 +241,7 @@ def change_tts_inference(if_tts,bert_path,cnhubert_base_path,gpu_number,gpt_path
         yield i18n("TTS推理进程已关闭")
 
 from tools.asr.config import asr_dict
+print(asr_dict)
 def open_asr(asr_inp_dir, asr_opt_dir, asr_model, asr_model_size, asr_lang, asr_precision):
     global p_asr
     if(p_asr==None):
@@ -1007,7 +1008,7 @@ with gr.Blocks(title="GPT-SoVITS WebUI") as app:
     app.queue(concurrency_count=511, max_size=1022).launch(
         server_name="0.0.0.0",
         inbrowser=True,
-        share=is_share,
+        share=True,
         server_port=webui_port_main,
         quiet=True,
     )
