@@ -22,6 +22,7 @@ import traceback
 import LangSegment
 from subprocess import getstatusoutput
 from . import GSV_const as C
+from .GSV_const import Route as R
 from .GSV_const import ReferenceInfo
 from .GSV_utils import cut5, process_text, merge_short_text_in_array, get_first, replace_consecutive_punctuation, clean_text_inf
 from GPT_SoVITS.AR.models.t2s_lightning_module import Text2SemanticLightningModule
@@ -601,12 +602,13 @@ if __name__ == '__main__':
     if len(sys.argv) >= 3:
         sid = sys.argv[1]
         lang = sys.argv[2]
-        from .GSV_const import Route as R
+        ref = sys.argv[3] if len(sys.argv) >= 4 else C.D_REF_SUFFIX
+        print(f">>> Inference with sid={sid} lang={lang} ref={ref}")
         sovits_model = R.get_sovits_fp(sid)
         gpt_model = R.get_gpt_fp(sid)
         M = GSVModel(sovits_model_fp=sovits_model, gpt_model_fp=gpt_model)
 
-        ref_info = ReferenceInfo.from_sid(sid)
+        ref_info = ReferenceInfo.from_sid(sid, suffix=ref)
         opt_dir = f"./audio_test/{sid}"
         audio_list = []
         with open("./core/quality_check/text_en_us.txt", "r", encoding="utf-8") as fr:

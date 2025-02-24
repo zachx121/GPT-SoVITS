@@ -304,17 +304,17 @@ def step_asr(denoised_dir, asr_dir, sid, lang="auto"):
                 min_idx = idx
             else:
                 continue
-    ref_line = lines.pop(min_idx)
+    ref_line = lines.pop(min_idx).strip()
 
     # 原文件最短的音频，放到另一个文件中作为参考音频使用
     cmd1 = f"""cp '{os.path.join(PROJ_DIR, ref_line.split("|")[0])}'  '{R.get_ref_audio_fp(sid, C.D_REF_SUFFIX)}'"""
     cmd2 = f"""echo '{ref_line.split("|")[2]}|{ref_line.split("|")[3]}' > '{R.get_ref_text_fp(sid, C.D_REF_SUFFIX)}'"""
     logger.info(f">>> execute cmd1: {cmd1}")
-    s, _ = getstatusoutput(cmd1)
-    assert s == 0, f"cp audio fail. cmd: {cmd1}"
+    s, opt = getstatusoutput(cmd1)
+    assert s == 0, f"cp audio fail. cmd: {cmd1}, opt: {opt}"
     logger.info(f">>> execute cmd1: {cmd2}")
-    s, _ = getstatusoutput(cmd2)
-    assert s == 0, f"echo file fail. cmd: {cmd2}"
+    s, opt = getstatusoutput(cmd2)
+    assert s == 0, f"echo file fail. cmd: {cmd2}, opt: {opt}"
 
     # 原文件最短的音频，从原文件中删掉
     with open(os.path.join(fp), "w", encoding="utf-8") as fw:

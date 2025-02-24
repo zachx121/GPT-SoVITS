@@ -3,31 +3,6 @@ import os
 import pylab as p
 
 
-class ReferenceInfo:
-    def __init__(self, audio_fp: str, text: str, lang: str):
-        self.audio_fp = audio_fp
-        self.text = text
-        self.lang = lang
-
-    @staticmethod
-    def from_sid(sid):
-        import subprocess
-        ref_audio_fp = Route.get_ref_audio_fp(sid, D_REF_SUFFIX)
-        ref_lang, ref_text = subprocess.getoutput(f"cat {Route.get_ref_text_fp(sid, D_REF_SUFFIX)}").strip().split("|")
-        ref_info = ReferenceInfo(audio_fp=ref_audio_fp,
-                                 text=ref_text,
-                                 lang=ref_lang)
-        return ref_info
-
-    @staticmethod
-    def from_oss(sid):
-        # todo
-        pass
-
-    def __str__(self):
-        return f"audio_fp='{self.audio_fp}', text='{self.text}', lang='{self.lang}'"
-
-
 # 外部输入的语言参数转换为GSV框架内默认的语言参数
 LANG_MAP = {"EN": "en", "en_us": "en",
             "JP": "all_ja", "jp_jp": "all_ja",
@@ -56,6 +31,31 @@ PRETRAIN_SSL_DIR = "GPT_SoVITS/pretrained_models/chinese-hubert-base"
 PRETRAIN_S2G_FP = "GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s2G2333k.pth"
 PRETRAIN_S2D_FP = "GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s2D2333k.pth"
 PRETRAIN_GPT_FP = "GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt"
+
+
+class ReferenceInfo:
+    def __init__(self, audio_fp: str, text: str, lang: str):
+        self.audio_fp = audio_fp
+        self.text = text
+        self.lang = lang
+
+    @staticmethod
+    def from_sid(sid, suffix=D_REF_SUFFIX):
+        import subprocess
+        ref_audio_fp = Route.get_ref_audio_fp(sid, suffix)
+        ref_lang, ref_text = subprocess.getoutput(f"cat {Route.get_ref_text_fp(sid, suffix)}").strip().split("|")
+        ref_info = ReferenceInfo(audio_fp=ref_audio_fp,
+                                 text=ref_text,
+                                 lang=ref_lang)
+        return ref_info
+
+    @staticmethod
+    def from_oss(sid):
+        # todo
+        pass
+
+    def __str__(self):
+        return f"audio_fp='{self.audio_fp}', text='{self.text}', lang='{self.lang}'"
 
 
 class Route:
