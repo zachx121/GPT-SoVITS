@@ -307,8 +307,8 @@ def step_asr(denoised_dir, asr_dir, sid, lang="auto"):
     ref_line = lines.pop(min_idx).strip()
 
     # 原文件最短的音频，放到另一个文件中作为参考音频使用
-    cmd1 = f"""cp '{os.path.join(PROJ_DIR, ref_line.split("|")[0])}'  '{R.get_ref_audio_fp(sid, C.D_REF_SUFFIX)}'"""
-    cmd2 = f"""echo '{ref_line.split("|")[2]}|{ref_line.split("|")[3]}' > '{R.get_ref_text_fp(sid, C.D_REF_SUFFIX)}'"""
+    cmd1 = f"""cp "{os.path.join(PROJ_DIR, ref_line.split("|")[0])}"  "{R.get_ref_audio_fp(sid, C.D_REF_SUFFIX)}" """
+    cmd2 = f"""echo "{ref_line.split("|")[2]}|{ref_line.split("|")[3]}" > "{R.get_ref_text_fp(sid, C.D_REF_SUFFIX)}" """
     logger.info(f">>> execute cmd1: {cmd1}")
     s, opt = getstatusoutput(cmd1)
     assert s == 0, f"cp audio fail. cmd: {cmd1}, opt: {opt}"
@@ -885,6 +885,7 @@ def workflow(inp_params):
 
 
 # python -m service_GSV.GSV_train_standalone test_cxm zh_cn 'model/clone/device/20250211/1000294265/6f50a0eb-2a46-4973-93d2-2dbe84d0f3a7.m4a'
+# python -m service_GSV.GSV_train_standalone ChatTTS_Voice_Clone_Common_KellyV2 en_us 'http://resource.aisounda.cn/model%2Fclone%2Fself%2F701c5a35-0e7f-4832-a805-72f3c93ea007.m4a?e=1740386407&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:MsdLRnmCo5YajmN8maURh3-yCkI='
 if __name__ == '__main__':
     try:
         assert len(sys.argv) >= 4, "python -m service_GSV.GSV_train_standalone <sid> <lang> <data_urls(逗号拼接)>"
