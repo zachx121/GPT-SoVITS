@@ -627,6 +627,7 @@ class GSVModel:
                                                 top_k=top_k, top_p=top_p, temperature=max(0.8, temperature), speed=speed,
                                                 ref_free=ref_free, no_cut=no_cut, **kwargs)
             wav_sr, wav_arr_int16 = list(synthesis_result)[-1]
+            logging.warning(f"    重新合成后 duration={wav_arr_int16.shape[0]/wav_sr} var={np.var(wav_arr_int16)}")
             cnt += 1
             if self.is_ref_leakage(wav_arr_int16, wav_sr, ref_info):
                 logging.error(
@@ -653,6 +654,7 @@ class GSVModel:
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_ZoeV2 en
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_NinaV2 en
 if __name__ == '__main__':
+    local_test_dir = "audio_test"
     if len(sys.argv) >= 3:
         os.environ["TOKENIZERS_PARALLELISM"]="false"
         sid = sys.argv[1]
@@ -664,7 +666,8 @@ if __name__ == '__main__':
         M = GSVModel(sovits_model_fp=sovits_model, gpt_model_fp=gpt_model)
 
         ref_info = ReferenceInfo.from_sid(sid, suffix=ref)
-        opt_dir = f"./audio_test/{sid}"
+        opt_dir = os.path.join(local_test_dir, sid)
+        os.makedirs(opt_dir, exist_ok=True)
         audio_list = []
         with open("./core/quality_check/text_en_us.txt", "r", encoding="utf-8") as fr:
             lines = [i.strip() for i in fr.readlines()]
@@ -689,6 +692,8 @@ if __name__ == '__main__':
 
         sf.write(os.path.join(opt_dir, "res_audio.wav"), np.hstack(audio_list), sr)
     else:
+        opt_dir = os.path.join(local_test_dir, "cxm_from_webui")
+        os.makedirs(opt_dir, exist_ok=True)
         sovits_model = "/root/autodl-fs/models/cxm_from_webui/sovits_xxx_e8_s80.pth"
         gpt_model = "/root/autodl-fs/models/cxm_from_webui/gpt_xxx-e15.ckpt"
         ref_audio = ReferenceInfo(audio_fp="/root/autodl-fs/models/cxm_from_webui/ref_audio.wav",
@@ -696,14 +701,14 @@ if __name__ == '__main__':
                                   lang="ZH")
         M = GSVModel(sovits_model_fp=sovits_model, gpt_model_fp=gpt_model)
 
-        os.makedirs("tmp_model_predict", exist_ok=True)
+
         for text in ["测试","测试测试","测试效果","你好","今天天气如何","我是你们的好朋友"]:
             sr, audio = M.predict(target_text=text,
                                   target_lang="ZH",
                                   ref_info=ref_audio,
                                   top_k=30, top_p=0.99, temperature=0.6,
                                   no_cut=True)
-            sf.write(os.path.join("./tmp_model_predict/", f"output_len{len(text)}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
+            sf.write(os.path.join(opt_dir, f"output_len{len(text)}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
 
         long_text = ("The sun rises, painting the sky with hues of gold and pink. The birds chirp merrily, "
                      "greeting the new day. A gentle breeze blows, carrying the fragrance of fresh flowers. "
@@ -723,7 +728,7 @@ if __name__ == '__main__':
                                   ref_info=ref_audio,
                                   top_k=20, top_p=1.0, temperature=1.0,
                                   no_cut=True)
-            sf.write(os.path.join("./tmp_model_predict/", f"output_len{len(text.split(' '))}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
+            sf.write(os.path.join(opt_dir, f"output_len{len(text.split(' '))}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
 
         for text in ["こんにちは。"  # 你好。
                      "ごめんください。",  # 有人吗；打扰了。
@@ -736,7 +741,7 @@ if __name__ == '__main__':
                                   ref_info=ref_audio,
                                   top_k=20, top_p=1.0, temperature=1.0,
                                   no_cut=True)
-            sf.write(os.path.join("./tmp_model_predict/", f"output_len{len(text)}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
+            sf.write(os.path.join(opt_dir, f"output_len{len(text)}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
 
         for text in ["안녕하세요.",  # 你好
                      "안녕히 계세요.",  # 再见，留步
@@ -748,7 +753,7 @@ if __name__ == '__main__':
                                   ref_info=ref_audio,
                                   top_k=20, top_p=1.0, temperature=1.0,
                                   no_cut=True)
-            sf.write(os.path.join("./tmp_model_predict/", f"output_len{len(text)}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
+            sf.write(os.path.join(opt_dir, f"output_len{len(text)}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
 
         sys.exit(0)
 
