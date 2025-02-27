@@ -64,6 +64,14 @@ app = Flask(__name__, static_folder="./static_folder", static_url_path="")
 log_dir = "logs"
 # 日志文件名
 log_file = "server.log"
+# RabbitMQ 连接信息
+rabbitmq_config = {
+    "address": "120.24.144.127",
+    "ports": [5672, 5673, 5674],
+    "username": "admin",
+    "password": "aibeeo",
+    "virtual_host": "test-0208"
+}
 queue_service_inference_request_prefix='queue_service_inference_request_'
 exchange_service_load_model_result='exchange_service_load_model_result'
 
@@ -92,14 +100,6 @@ def get_machine_id():
 
 
 def connect_to_rabbitmq():
-    # RabbitMQ 连接信息
-    rabbitmq_config = {
-        "address": "120.24.144.127",
-        "ports": [5672, 5673, 5674],
-        "username": "admin",
-        "password": "aibeeo",
-        "virtual_host": "test-0208"
-    }
     try:
         # 连接到 RabbitMQ
         credentials = pika.PlainCredentials(rabbitmq_config["username"], rabbitmq_config["password"])
@@ -824,7 +824,7 @@ if __name__ == '__main__':
     logger.info(f"Endpoint Type: {endpoint_type}")
     logger.info(f"Service URL: {service_url}")
     
-    # 启动定时任务调度线程
+    # 启动定时任务调度线程 | 用于检查模型状 check_and_notify
     logger.info("Starting scheduled tasks...")
     task_thread = threading.Thread(target=schedule_tasks)
     task_thread.daemon = True  # 设置为守护线程，主进程退出时自动结束
