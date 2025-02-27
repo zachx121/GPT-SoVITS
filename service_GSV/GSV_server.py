@@ -65,7 +65,7 @@ log_dir = "logs"
 # 日志文件名
 log_file = "server.log"
 queue_service_inference_request_prefix='queue_service_inference_request_'
-
+exchange_service_load_model_result='exchange_service_load_model_result'
 
 def get_machine_id():
     """获取机器的主机名，清理并返回。"""
@@ -150,8 +150,6 @@ def adjust_loudness(audio_arr, target_lufs=-23.0):
 
 def model_process(sid: str, event, q_inp):
     global logger
-    exchange_service_load_model_result='exchange_service_load_model_result'
-
     logger=config_log()
     # 获取机器的 hostname
     logger.info("开始运行model_process")
@@ -195,16 +193,12 @@ def model_process(sid: str, event, q_inp):
                 properties=PROPERTIES
             )
         return  # 退出函数
-    
 
-    
     request_queue_name = queue_service_inference_request_prefix+sid
-    
-
     # 连接到 RabbitMQ
     connection, channel = connect_to_rabbitmq()
     if not connection or not channel:
-        logger.info("连接mq失败")
+        logger.error("连接mq失败")
         return  # 如果连接失败，退出函数
     # 设置过期时间（单位：毫秒），这里设置为 1 小时（3600000 毫秒）
     args = {
@@ -225,35 +219,15 @@ def model_process(sid: str, event, q_inp):
     logger.info("发送load成功事件到mq")
     load_result_event = {
         "uniqueVoiceName": sid,  # 唯一语音名称
-        "loadStatus":True
+        "loadStatus": True
     }
     channel.basic_publish(exchange=exchange_service_load_model_result, routing_key='', body=json.dumps(load_result_event),  properties=PROPERTIES)
     logger.info("event设置为set")
     event.set()
     
-
-    while True:
-      
-        # 进程是否关闭逻辑
+    def call_back_func(ch, method, properties, body):
+        p:C.InferenceParam = None
         try:
-            # 非阻塞地从队列获取参数
-            p = q_inp.get_nowait()  # 立即返回，不阻塞
-        except queue.Empty:
-            p = None  # 如果队列为空，设置 p 为 None
-
-        # 检查 p 是否为关闭信号
-        if p == "STOP":  # 使用字符串 "STOP" 作为关闭信号
-            logger.info(f"Received shutdown signal for SID: {sid}. Exiting process.")
-            break  # 接收到关闭信号，退出循环
-            
-            
-        # 从 RabbitMQ 获取消息
-        try:
-            method_frame, header_frame, body = channel.basic_get(queue=request_queue_name, auto_ack=True)
-            if body is None:
-                time.sleep(0.1)  # 如果没有消息，休眠一段时间
-                continue  # 如果没有消息，等待下一次
-            # 尝试解析 JSON
             # 将字节串解码为字符串
             body_str = body.decode('utf-8')
             # 将字符串解析为字典
@@ -261,79 +235,80 @@ def model_process(sid: str, event, q_inp):
             # 创建 InferenceParam 实例
             p = C.InferenceParam(info_dict)
             # 处理 InferenceParam 实例
-            
+            # 这里可以添加你的处理逻辑，例如：
+            print(f"Processing: {p}")
         except json.JSONDecodeError as e:
             logger.error(f"JSON 解析错误: {e}")
             logger.error(traceback.format_exc())  # 打印完整的堆栈跟踪
-            continue;
         except Exception as e:
             logger.error(f"创建 InferenceParam 实例时出错: {e}")
             logger.error(traceback.format_exc())  # 打印完整的堆栈跟踪
-            continue  # 继续下一个循环
+            raise e
 
-        try:
-            # 检查是否设置过默认的ref
-            ref_audio_fp = R.get_ref_audio_fp(p.speaker, C.D_REF_SUFFIX)
-            ref_text_fp = R.get_ref_text_fp(p.speaker, C.D_REF_SUFFIX)
-            if not (os.path.exists(ref_audio_fp) and os.path.exists(ref_text_fp)):
-                logger.warning(f">>> reference as '{p.ref_suffix}' is not ready, init a default one from training data.")
-                add_default_ref(p.speaker)
+        if p is not None:
+            try:
+                # 检查是否设置过默认的ref
+                ref_audio_fp = R.get_ref_audio_fp(p.speaker, C.D_REF_SUFFIX)
+                ref_text_fp = R.get_ref_text_fp(p.speaker, C.D_REF_SUFFIX)
+                if not (os.path.exists(ref_audio_fp) and os.path.exists(ref_text_fp)):
+                    logger.warning(
+                        f">>> reference as '{p.ref_suffix}' is not ready, init a default one from training data.")
+                    add_default_ref(p.speaker)
 
-            tlist = []
-            tlist.append(int(time.time() * 1000))
-            if p.debug:
+                tlist = []
+                tlist.append(int(time.time() * 1000))
                 logger.info(f"""params as: 
                 target_text={p.text},
                 target_lang={p.tgt_lang},
                 ref_info={p.ref_info}, # ReferenceInfo(audio_fp={p.ref_info.audio_fp},text={p.ref_info.text},lang={p.ref_info.lang}) 
-                top_k=1, top_p=0, temperature=0,
                 ref_free={p.ref_free}, no_cut={p.nocut}
                 """)
-            wav_sr, wav_arr_int16 = M.predict(target_text=p.text,
-                                              target_lang=p.tgt_lang,
-                                              ref_info=p.ref_info,
-                                              top_k=30, top_p=0.99, temperature=0.4,
-                                              ref_free=p.ref_free, no_cut=p.nocut)
-            if p.debug:
-                # 后处理之前的音频
-                import soundfile as sf
-                sf.write(f"{sid}_{time.time():.0f}_ori.wav", wav_arr_int16, wav_sr)
-                tlist.append(int(time.time()*1000))
-            
-           
-            # 后处理 | (int16,random_sr)-->(int16,16khz)
-            wav_arr_float32 = wav_arr_int16.astype(np.float32) / 32768.0
-            wav_arr_float32_16khz = librosa.resample(wav_arr_float32, orig_sr=wav_sr, target_sr=16000)
-             # 调整响度
-            wav_arr = adjust_loudness(wav_arr_float32_16khz, target_lufs=-23.0)  # 假设目标响度为 -23 LUFS
-            wav_arr_int16 = (np.clip(wav_arr, -1.0, 1.0) * 32767).astype(np.int16)
-            if p.debug:
-                sf.write(f"{sid}_{time.time():.0f}_16khz.wav", wav_arr_int16, 16000)
-            tlist.append(int(time.time()*1000))
-            rsp = {"trace_id": p.trace_id,
-                   # "audio_buffer": base64.b64encode(wav_arr.tobytes()).decode(),
-                   "audio_buffer_int16": base64.b64encode(wav_arr_int16.tobytes()).decode(),
-                   "sample_rate": 16000,
-                   "audio_text": p.text
-                  }
-            rsp = json.dumps({"code": 0,
-                              "msg": "",
-                              "result": rsp})
+                wav_sr, wav_arr_int16 = M.predict(target_text=p.text,
+                                                  target_lang=p.tgt_lang,
+                                                  ref_info=p.ref_info,
+                                                  top_k=30, top_p=0.99, temperature=0.4,
+                                                  ref_free=p.ref_free, no_cut=p.nocut)
+                if p.debug:
+                    # 后处理之前的音频
+                    import soundfile as sf
+                    sf.write(f"{sid}_{time.time():.0f}_ori.wav", wav_arr_int16, wav_sr)
+                    tlist.append(int(time.time() * 1000))
 
-            channel.basic_publish(exchange='', routing_key=p.result_queue_name, body=rsp,  properties=PROPERTIES)
-            tlist.append(int(time.time()*1000))
+                # 后处理 | (int16,random_sr)-->(int16,16khz)
+                wav_arr_float32 = wav_arr_int16.astype(np.float32) / 32768.0
+                wav_arr_float32_16khz = librosa.resample(wav_arr_float32, orig_sr=wav_sr, target_sr=16000)
+                # 调整响度
+                wav_arr = adjust_loudness(wav_arr_float32_16khz, target_lufs=-23.0)  # 假设目标响度为 -23 LUFS
+                wav_arr_int16 = (np.clip(wav_arr, -1.0, 1.0) * 32767).astype(np.int16)
+                if p.debug:
+                    sf.write(f"{sid}_{time.time():.0f}_16khz.wav", wav_arr_int16, 16000)
+                tlist.append(int(time.time() * 1000))
+                rsp = {"trace_id": p.trace_id,
+                       # "audio_buffer": base64.b64encode(wav_arr.tobytes()).decode(),
+                       "audio_buffer_int16": base64.b64encode(wav_arr_int16.tobytes()).decode(),
+                       "sample_rate": 16000,
+                       "audio_text": p.text
+                       }
+                rsp = json.dumps({"code": 0,
+                                  "msg": "",
+                                  "result": rsp})
 
-        except Exception as e:
-            logger.error(f">>> Error when model.predict. e: {repr(e)}")
-            logger.error(traceback.format_exc())  # 打印完整的堆栈跟踪
+                channel.basic_publish(exchange='', routing_key=p.result_queue_name, body=rsp, properties=PROPERTIES)
+                tlist.append(int(time.time() * 1000))
 
-            rsp = {"trace_id": p.trace_id,
-                   "audio_buffer_int16": "",
-                   "sample_rate": 16000}
-            rsp = json.dumps({"code": 1,
-                              "msg": f"Prediction failed, internal err {repr(e)}",
-                              "result": rsp})
-            channel.basic_publish(exchange='', routing_key=p.result_queue_name, body=rsp,  properties=PROPERTIES)
+            except Exception as e:
+                logger.error(f">>> Error when model.predict. e: {repr(e)}")
+                logger.error(traceback.format_exc())  # 打印完整的堆栈跟踪
+                rsp = {"trace_id": p.trace_id,
+                       "audio_buffer_int16": "",
+                       "sample_rate": 16000}
+                rsp = json.dumps({"code": 1,
+                                  "msg": f"Prediction failed, internal err {repr(e)}",
+                                  "result": rsp})
+                channel.basic_publish(exchange='', routing_key=p.result_queue_name, body=rsp, properties=PROPERTIES)
+
+    channel.basic_consume(queue=request_queue_name, auto_ack=True, on_message_callback=call_back_func)
+    channel.start_consuming()
 
     # 清理资源
     channel.close()
@@ -692,7 +667,7 @@ def get_local_file_storage():
 
 
 def config_log():
-     # 确保日志目录存在
+    # 确保日志目录存在
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
 
