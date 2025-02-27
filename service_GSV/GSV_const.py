@@ -5,7 +5,7 @@ import pylab as p
 
 # 外部输入的语言参数转换为GSV框架内默认的语言参数
 LANG_MAP = {"EN": "en", "en_us": "en",
-            "JP": "all_ja", "jp_jp": "all_ja",
+            "JP": "all_ja", "ja_jp": "all_ja",
             "KO": "all_ko", "ko_kr": "all_ko",
             "ZH": "all_zh", "zh_cn": "all_zh",
             "YUE": "all_yue",
