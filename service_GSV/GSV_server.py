@@ -214,7 +214,13 @@ def model_process(sid: str, event, q_inp):
     M = GSVModel(sovits_model_fp=R.get_sovits_fp(sid),
                  gpt_model_fp=R.get_gpt_fp(sid),
                  speaker=sid)
-    
+    # 预热推理 | 特意放在event之后，避免加载等太久
+    p = C.InferenceParam({"speaker": sid, "text": "Hello,how are you today?", "lang": "en_us"})
+    _ = M.predict(target_text=p.text,
+                  target_lang=p.tgt_lang,
+                  ref_info=p.ref_info,
+                  top_k=30, top_p=0.99, temperature=0.4,
+                  ref_free=p.ref_free, no_cut=p.nocut)
     # 发送load成功事件
     logger.info("发送load成功事件到mq")
     load_result_event = {
@@ -224,7 +230,7 @@ def model_process(sid: str, event, q_inp):
     channel.basic_publish(exchange=exchange_service_load_model_result, routing_key='', body=json.dumps(load_result_event),  properties=PROPERTIES)
     logger.info("event设置为set")
     event.set()
-    
+
     def call_back_func(ch, method, properties, body):
         p:C.InferenceParam = None
         try:
