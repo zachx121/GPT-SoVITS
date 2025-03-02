@@ -697,45 +697,11 @@ if __name__ == '__main__':
         lang = sys.argv[2]
         ref = sys.argv[3] if len(sys.argv) >= 4 else C.D_REF_SUFFIX
         print(f">>> Inference with sid={sid} lang={lang} ref={ref}")
-        sovits_model = R.get_sovits_fp(sid)
-        gpt_model = R.get_gpt_fp(sid)
-        M = GSVModel(sovits_model_fp=sovits_model, gpt_model_fp=gpt_model)
-
+        sovits_fp = R.get_sovits_fp(sid)
+        gpt_fp = R.get_gpt_fp(sid)
+        M = GSVModel(sovits_model_fp=sovits_fp, gpt_model_fp=gpt_fp)
         ref_info = ReferenceInfo.from_sid(sid, suffix=ref)
-        opt_dir = os.path.join(local_test_dir, sid)
-        if os.path.exists(opt_dir):
-            shutil.rmtree(opt_dir)
-        os.makedirs(opt_dir, exist_ok=True)
-        audio_list = []
-        cmt_list = []
-        text_fp = "./core/quality_check/text_en_us.txt"
-        with open(text_fp, "r", encoding="utf-8") as fr:
-            lines = [i.strip() for i in fr.readlines()]
-        for idx, line in enumerate(lines):
-            begin_t = time.time()
-            logging.info(f">>> 开始合成({idx}/{len(lines)}): {line}")
-            sr, audio = M.predict(target_text=line,
-                                  target_lang=lang,
-                                  ref_info=ref_info,
-                                  top_k=30, top_p=0.99, temperature=0.6,
-                                  no_cut=True)
-            end_t = time.time()
-            audio_list.append(audio)
-            opt_fp = f"audio{idx}_{len(line.split(' '))}token_{(end_t-begin_t)*1000:.0f}ms.wav"
-            is_leak = M.is_ref_leakage(audio, sr, ref_info)
-            is_any_abnormal = M.audio_check(wav_arr=audio, wav_sr=sr, text=line, lang=lang)
-            opt_fp = os.path.join(opt_dir, opt_fp)
-            sf.write(opt_fp, audio, sr)
-            cmt_list.append(f"单词数: {len(line.split(' '))} 合成耗时: {(end_t-begin_t)*1000:.0f}ms 异常检测: leak={is_leak} abnormal={is_any_abnormal}")
-            # from pydub import AudioSegment
-            # audio_segment = AudioSegment(
-            #     audio.tobytes(),
-            #     frame_rate=sr,
-            #     sample_width=audio.dtype.itemsize,
-            #     channels=1
-            # )
-            # audio_segment.export(opt_fp, format='m4a')
-        webui_list_audios(opt_dir, text_list=lines, cmt_list=cmt_list)
+
         # sf.write(os.path.join(opt_dir, "res_audio.wav"), np.hstack(audio_list), sr)
     else:
         # opt_dir = os.path.join(local_test_dir, "cxm_from_webui")
@@ -746,73 +712,71 @@ if __name__ == '__main__':
         # #                           text="大家好，欢迎来到我的直播间，我是你们的主播小美。",
         # #                           lang="ZH")
 
-        opt_dir = os.path.join(local_test_dir, "xxx")
-        os.makedirs(opt_dir, exist_ok=True)
-        sovits_model = "/root/GPT-SoVITS/SoVITS_weights_v2/xxx_e8_s168.pth"
-        gpt_model = "/root/GPT-SoVITS/GPT_weights_v2/xxx-e15.ckpt"
-        ref_audio = ReferenceInfo(audio_fp="/root/autodl-fs/voice_sample/Lýdia_Machová/denoise_opt/Lýdia_Machová-1.wav_0000000000_0000138240.wav",
-                                  text="In fact, I love it so much that I like to learn a new language every two years.",
-                                  lang="EN")
-        M = GSVModel(sovits_model_fp=sovits_model, gpt_model_fp=gpt_model)
+        lang = "en"
+        sid = "lydia"
+        sovits_fp = "/root/GPT-SoVITS/SoVITS_weights_v2/xxx_e8_s168.pth"
+        gpt_fp = "/root/GPT-SoVITS/GPT_weights_v2/xxx-e15.ckpt"
+        M = GSVModel(sovits_model_fp=sovits_fp, gpt_model_fp=gpt_fp)
+        ref_info = ReferenceInfo(
+            audio_fp="/root/autodl-fs/voice_sample/Lýdia_Machová/denoise_opt/Lýdia_Machová-1.wav_0000000000_0000138240.wav",
+            text="In fact, I love it so much that I like to learn a new language every two years.",
+            lang="EN")
 
-        lines = []
-        for text in ["测试","测试测试","测试效果","你好","今天天气如何","我是你们的好朋友"]:
-            lines.append(text)
-            sr, audio = M.predict(target_text=text,
-                                  target_lang="ZH",
-                                  ref_info=ref_audio,
-                                  top_k=30, top_p=0.99, temperature=0.6,
-                                  no_cut=True)
-            sf.write(os.path.join(opt_dir, f"output_len{len(text)}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
+        if False:  # post2oss
+            import utils_audio
+            import subprocess
+            url = utils_audio.post2qiniu(sovits_fp, R.get_sovits_osskey(sid))
+            logging.info(f">>> url as: '{url}'")
+            logging.info(">>> Uploading gpt model to qiniu.")
+            url = utils_audio.post2qiniu(gpt_fp, R.get_gpt_osskey(sid))
+            logging.info(f">>> url as: '{url}'")
+            logging.info(">>> Uploading default_ref to qiniu.")
+            res = subprocess.run(["cp", "/root/autodl-fs/voice_sample/Lýdia_Machová/denoise_opt/Lýdia_Machová-1.wav_0000000000_0000138240.wav",
+                                  R.get_ref_audio_fp(sid, C.D_REF_SUFFIX)],
+                                 capture_output=True, text=True, encoding='utf-8')
+            assert res.returncode == 0, res.stdout.strip()
+            res = subprocess.run(["echo", "\"EN|In fact, I love it so much that I like to learn a new language every two years.\"",
+                                  ">",
+                                  R.get_ref_text_fp(sid, C.D_REF_SUFFIX)],
+                                 capture_output=True, text=True, encoding='utf-8')
+            assert res.returncode == 0, res.stdout.strip()
+            audio_url = utils_audio.post2qiniu(R.get_ref_audio_fp(sid, C.D_REF_SUFFIX), R.get_ref_audio_osskey(sid))
+            text_url = utils_audio.post2qiniu(R.get_ref_text_fp(sid, C.D_REF_SUFFIX), R.get_ref_text_osskey(sid))
+            logging.info(f">>> [audio_url]:'{audio_url}' [text_url]:'{text_url}'")
 
-        long_text = ("The sun rises, painting the sky with hues of gold and pink. The birds chirp merrily, "
-                     "greeting the new day. A gentle breeze blows, carrying the fragrance of fresh flowers. "
-                     "It's a beautiful start to another wonderful day.")
-        for text in ["Test",
-                     "Hello",
-                     "Apple",
-                     "Test Hello Apple",
-                     "Hello, how are you?",
-                     "Hello hello hello hello hello hello, are you sure",
-                     "Hello hello hello hello hello, are you sure",
-                     "Hello hello hello hello, are you sure",
-                     "Isn't this great?",
-                     long_text]:
-            lines.append(text)
-            sr, audio = M.predict(target_text=text,
-                                  target_lang="EN",
-                                  ref_info=ref_audio,
-                                  top_k=20, top_p=1.0, temperature=0.6,
-                                  no_cut=True)
-            sf.write(os.path.join(opt_dir, f"output_len{len(text.split(' '))}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
-
-        for text in ["こんにちは。"  # 你好。
-                     "ごめんください。",  # 有人吗；打扰了。
-                     "毎朝ジョギングをします。",  # 我每天早上慢跑。
-                     "何時に会いましょうか。",  # 我们几点见面呢？
-                     "ごめんください 何時に会いましょうか 毎朝ジョギングをします。",  # 有人吗；打扰了。 我们几点见面呢？ 我每天早上慢跑。
-                     ]:
-            lines.append(text)
-            sr, audio = M.predict(target_text=text,
-                                  target_lang="JP",
-                                  ref_info=ref_audio,
-                                  top_k=20, top_p=1.0, temperature=0.6,
-                                  no_cut=True)
-            sf.write(os.path.join(opt_dir, f"output_len{len(text)}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
-
-        for text in ["안녕하세요.",  # 你好
-                     "안녕히 계세요.",  # 再见，留步
-                     "저는 영화를 보고 싶어요.",
-                     "안녕하세요 안녕히 계세요.저는 영화를 보고 싶어요",  # 我想看电影。
-                     ]:
-            lines.append(text)
-            sr, audio = M.predict(target_text=text,
-                                  target_lang="KO",
-                                  ref_info=ref_audio,
-                                  top_k=20, top_p=1.0, temperature=0.6,
-                                  no_cut=True)
-            sf.write(os.path.join(opt_dir, f"output_len{len(text)}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
-
-        webui_list_audios(opt_dir, text_list=lines)
-        sys.exit(0)
-
+    opt_dir = os.path.join(local_test_dir, sid)
+    if os.path.exists(opt_dir):
+        shutil.rmtree(opt_dir)
+    os.makedirs(opt_dir, exist_ok=True)
+    audio_list = []
+    cmt_list = []
+    text_fp = "./core/quality_check/text_en_us.txt"
+    with open(text_fp, "r", encoding="utf-8") as fr:
+        lines = [i.strip() for i in fr.readlines()]
+        lines = [i for i in lines if len(i) >= 1]
+    for idx, line in enumerate(lines):
+        begin_t = time.time()
+        logging.info(f">>> 开始合成({idx}/{len(lines)}): {line}")
+        sr, audio = M.predict(target_text=line,
+                              target_lang=lang,
+                              ref_info=ref_info,
+                              top_k=30, top_p=0.99, temperature=0.6,
+                              no_cut=True)
+        end_t = time.time()
+        audio_list.append(audio)
+        opt_fp = f"audio{idx}_{len(line.split(' '))}token_{(end_t - begin_t) * 1000:.0f}ms.wav"
+        is_leak = M.is_ref_leakage(audio, sr, ref_info)
+        is_any_abnormal = M.audio_check(wav_arr=audio, wav_sr=sr, text=line, lang=lang)
+        opt_fp = os.path.join(opt_dir, opt_fp)
+        sf.write(opt_fp, audio, sr)
+        cmt_list.append(
+            f"单词数: {len(line.split(' '))} 合成耗时: {(end_t - begin_t) * 1000:.0f}ms 异常检测: leak={is_leak} abnormal={is_any_abnormal}")
+        # from pydub import AudioSegment
+        # audio_segment = AudioSegment(
+        #     audio.tobytes(),
+        #     frame_rate=sr,
+        #     sample_width=audio.dtype.itemsize,
+        #     channels=1
+        # )
+        # audio_segment.export(opt_fp, format='m4a')
+    webui_list_audios(opt_dir, text_list=lines, cmt_list=cmt_list)
