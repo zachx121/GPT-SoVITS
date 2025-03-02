@@ -37,3 +37,7 @@ python_mecab_ko; sys_platform != 'win32'
 
 pyloudnorm==0.1.1
 schedule==1.2.2
+
+huggingface-hub==0.29.0
+funasr==1.2.4
+modelscope==1.23.0
