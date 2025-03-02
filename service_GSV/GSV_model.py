@@ -2,19 +2,18 @@
 import logging
 import sys
 
-import api
-import inference_webui
-
+#a
 logging.getLogger('matplotlib').setLevel(logging.WARNING)
 logging.getLogger('jieba_fast').setLevel(logging.WARNING)
-logging.basicConfig(format='[%(asctime)s-%(levelname)s-%(funcName)s]: %(message)s',
+logging.basicConfig(format='[%(asctime)s-%(levelname)s]: %(message)s',
                     datefmt="%Y-%m-%d %H:%M:%S",
-                    level=logging.DEBUG)
+                    level=logging.INFO)
 
 import re
 import time
 from time import time as ttime
 import os
+import shutil
 import numpy as np
 import soundfile as sf
 import json
@@ -22,15 +21,19 @@ import librosa
 import torch
 import traceback
 import LangSegment
+import gradio as gr
 from subprocess import getstatusoutput
-from GSV_utils import cut5, process_text, merge_short_text_in_array, get_first, replace_consecutive_punctuation, clean_text_inf
+from . import GSV_const as C
+from .GSV_const import Route as R
+from .GSV_const import ReferenceInfo
+from .GSV_utils import cut5, process_text, merge_short_text_in_array, get_first, replace_consecutive_punctuation, clean_text_inf
 from GPT_SoVITS.AR.models.t2s_lightning_module import Text2SemanticLightningModule
 from GPT_SoVITS.module.models import SynthesizerTrn
 from GPT_SoVITS.feature_extractor import cnhubert
 from transformers import AutoModelForMaskedLM, AutoTokenizer
 from tools.my_utils import load_audio
 from GPT_SoVITS.module.mel_processing import spectrogram_torch
-assert getstatusoutput("ls tools")[0] == 0, "必须在项目根目录下执行不然会有路径问题 e.g. python GPT_SoVITS/GSV_model.py"
+assert getstatusoutput("ls tools")[0] == 0, "必须在项目根目录下执行不然会有路径问题 e.g. python -m GPT_SoVITS.GSV_model"
 
 from GPT_SoVITS.text import chinese
 from GPT_SoVITS.text import cleaned_text_to_sequence
@@ -41,33 +44,8 @@ DEFAULT_GPT_MODEL_FP = "GPT_SoVITS/pretrained_models/s1bert25hz-2kh-longer-epoch
 DEFAULT_SOVITS_MODEL_FP = "GPT_SoVITS/pretrained_models/s2G488k.pth"
 CNHUBERT_MODEL_FP = "GPT_SoVITS/pretrained_models/chinese-hubert-base"
 BERT_MODEL_FP = "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large"
-# 外部输入的语言参数转换为GSV框架内默认的语言参数
-LANG_MAP = {"EN": "en", "en_us": "en",
-            "JP": "all_ja", "jp_jp": "all_ja",
-            "KO": "all_ko", "ko_kr": "all_ko",
-            "ZH": "all_zh", "zh_cn": "all_zh",
-            "YUE": "all_yue",
-            "ZH_EN": "zh",  # 中英混合识别
-            "JP_EN": "ja",  # 日英混合识别
-            "YUE_EN": "yue",  # 粤英混合识别
-            "KO_EN": "ko",  # 韩英混合识别
-            "AUTO": "auto",
-            "AUTO_YUE": "auto_yue"
-            }
+
 SPLITS = {"，", "。", "？", "！", ",", ".", "?", "!", "~", ":", "：", "—", "…", }
-TMP_DIR = "./#tmp_output"
-os.makedirs(TMP_DIR, exist_ok=True)
-
-
-class ReferenceInfo:
-    def __init__(self, audio_fp: str, text: str, lang: str):
-        self.audio_fp = audio_fp
-        self.text = text
-        self.lang = lang
-
-    def __str__(self):
-        return f"audio_fp='{self.audio_fp}', text='{self.text}', lang='{self.lang}'"
-
 
 class DictToAttrRecursive(dict):
     def __init__(self, input_dict):
@@ -119,13 +97,14 @@ class GSVModel:
         self.tokenizer, self.bert_model = self.init_bert()
 
         self.torch_dtype = torch.float16 if self.is_half else torch.float32
+        self.ref_info, self.ref_wav_int16, self.ref_sr = None, None, None
 
 
     # api.py/change_sovits_weights
     def init_sovits(self):
         # >>> hps init
         global vq_model, hps
-        global vq_model, hps, version, dict_language
+        global vq_model, hps, version
         dict_s2 = torch.load(self.sovits_model_fp, map_location="cpu")
         hps = dict_s2["config"]
         hps = DictToAttrRecursive(hps)
@@ -309,7 +288,8 @@ class GSVModel:
             bert = torch.cat(bert_list, dim=1)
             phones = sum(phones_list, [])
             norm_text = ''.join(norm_text_list)
-
+        else:
+            raise Exception(f"GSV_model内部使用了异常语言: '{language}'")
         return phones, bert.to(self.torch_dtype), norm_text
 
     @staticmethod
@@ -336,8 +316,6 @@ class GSVModel:
         )
         return spec
 
-
-
     def get_tts_wav(self, text, text_language,
                     ref_wav_path, prompt_text, prompt_language,
                     no_cut=False,
@@ -350,18 +328,19 @@ class GSVModel:
         if prompt_text is None or len(prompt_text) == 0:
             ref_free = True
         t0 = ttime()
-        prompt_language = dict_language[prompt_language]
-        text_language = dict_language[text_language]
+        # 外部传参时已经转换好了
+        # prompt_language = dict_language[prompt_language]
+        # text_language = dict_language[text_language]
 
         if not ref_free:
             prompt_text = prompt_text.strip("\n")
             if (prompt_text[-1] not in SPLITS): prompt_text += "。" if prompt_language != "en" else "."
-            logging.info(f"实际输入的参考文本: {prompt_text}")
+            logging.debug(f"实际输入的参考文本: {prompt_text}")
         text = text.strip("\n")
         if (text[0] not in SPLITS and len(
             get_first(text)) < 4): text = "。" + text if text_language != "en" else "." + text
 
-        logging.info(f"实际输入的目标文本: {text}")
+        logging.debug(f"实际输入的目标文本: {text}")
         zero_wav = np.zeros(
             int(hps.data.sampling_rate * 0.3),
             dtype=np.float16 if self.is_half == True else np.float32,
@@ -395,7 +374,7 @@ class GSVModel:
         text = text if no_cut else cut5(text)
         while "\n\n" in text:
             text = text.replace("\n\n", "\n")
-        logging.info(f"实际输入的目标文本(切句后): {text}")
+        logging.debug(f"实际输入的目标文本(切句后): {text}")
         texts = text.split("\n")
         texts = process_text(texts)
         texts = merge_short_text_in_array(texts, 5)
@@ -408,9 +387,9 @@ class GSVModel:
             if (len(text.strip()) == 0):
                 continue
             if (text[-1] not in SPLITS): text += "。" if text_language != "en" else "."
-            logging.info(f"实际输入的目标文本(每句): {text}")
+            logging.debug(f"实际输入的目标文本(每句): {text}")
             phones2, bert2, norm_text2 = self.get_phones_and_bert(text, text_language, version)
-            logging.info(f"前端处理后的文本(每句): {norm_text2}")
+            logging.debug(f"前端处理后的文本(每句): {norm_text2}")
             if not ref_free:
                 bert = torch.cat([bert1, bert2], 1)
                 all_phoneme_ids = torch.LongTensor(phones1 + phones2).to(DEVICE).unsqueeze(0)
@@ -466,83 +445,338 @@ class GSVModel:
             np.int16
         )
 
+    @staticmethod
+    def is_pure_noise(wav_arr, threshold_std=0.01, threshold_entropy=0.9, debug=False, auto_cast=True, **kwargs):
+        """
+            noise_list=[]
+            for fn in os.listdir("/Users/zhou/Downloads/abcaudio"):
+                if any(fn.endswith(suffix) for suffix in ['wav','pcm','m4a','mp3']):
+                    print(f">>> processing {fn}")
+                    wav_arr, wav_sr = librosa.load(os.path.join("/Users/zhou/Downloads/abcaudio", fn))
+                    # wav_arr = (np.clip(wav_arr, -1.0, 1.0) * 32767).astype(np.int16)
+                    res = is_pure_noise(wav_arr, debug=True)
+                    if res == True:
+                        print(f">>>>>> 检测到纯噪音 {fn}<<<<<<")
+                        noise_list.append(fn)
+                else:
+                    continue
+            print(noise_list)
+        """
+
+        if auto_cast and wav_arr.dtype == np.int16:
+            wav_arr = wav_arr.astype(np.float32) / 32768.0  # 归一化到 [-1.0, 1.0]
+
+        assert wav_arr.dtype == np.float32
+        # 1. 计算方差（标准化后）
+        y_norm = wav_arr / np.max(np.abs(wav_arr))
+        std_dev = np.std(y_norm)
+
+        # 2. 计算谱熵
+        spec = np.abs(librosa.stft(wav_arr))
+        spec_norm = spec / np.sum(spec)
+        entropy = -np.sum(spec_norm * np.log2(spec_norm + 1e-10))
+        normalized_entropy = entropy / np.log2(spec.shape[0] * spec.shape[1])
+
+        # 3. 计算信噪比估计值 (使用能量比作为估计)
+        signal_power = np.mean(wav_arr ** 2)
+        noise_power_estimate = np.var(wav_arr - librosa.effects.preemphasis(wav_arr))
+        snr_estimate = 10 * np.log10(signal_power / (noise_power_estimate + 1e-10))
+
+        if debug:
+            # 输出特征值，便于调试
+            print(f"std: {std_dev:.4f} entropy:{normalized_entropy:.4f} SNR:{snr_estimate:.4f}dB")
+
+        # 条件判断
+        if std_dev < threshold_std or normalized_entropy > threshold_entropy:
+            return True  # 是纯噪声
+        else:
+            return False  # 不是纯噪声
+
+    @staticmethod
+    def is_abnormal_duration(wav_arr, wav_sr, text, lang, hold=3, **kwargs):
+        return False, 0, 0
+        lang = lang.lower()
+        get_token_num = lambda t, tlang: len(t.split(" ")) if tlang in ["en", "en_us"] else len(t)
+        # 根据角色音从 estimate_audio_len.py 里拟合出来的字符数与音频时长公式
+        # a, b, c = (0.0004416210417798762, 0.2990780290048899, 0.5942355219347748)
+        if lang in ["en", "en_us"]:  # todo only 'en' should be good enough
+            # Mike
+            # a, b, c = (0.00288095448943406, 0.22635555061873977, 0.7276428136650496)
+            # NinaV2
+            # a, b, c = (0.006569098898731953, 0.15735181885149516, 0.814867789439186)
+            # 基于6个英文角色音的训练样本的ASR结果
+            a, b, c, d = (0.0016008349175017078, -0.06599824444946428, 0.9600194411934183, -0.40882416983497394)
+        elif lang in ["zh", "zh_cn"]:
+            # test_cxm
+            # a, b, c = (0.01596191493148245, -0.15270688734650273, 1.7947908880583727)
+            # ChatTTS_Voice_Clone_User_3951_20250123010229136_x8bf (cxm)
+            a, b, c, d = (1.4589877459468358e-05, -0.003125013569752014, 0.2354471444393487, -1.7437911823924999)
+        else:
+            logging.warning(f">>> 语言'{lang}' 对应的时长预估参数未就绪，借用中文的")
+            a, b, c, d = (1.4589877459468358e-05, -0.003125013569752014, 0.2354471444393487, -1.7437911823924999)
+        x = get_token_num(text, lang)
+        p = round(a * x ** 3 + b * x ** 2 + c * x + d, 4)
+        y = round(wav_arr.shape[0] / wav_sr, 4)
+        # 如果文本过长的话，跳过检测，拟合公式不准的
+        if x >= 20:
+            logging.warning(f">>> 检测到合成长文本(英文20个单词 中文20个字):{x} 跳过时长检测")
+            return False, 0, y
+        else:
+            # 如果实际时长与预估时长差距超过3s，认为是异常音频
+            logging.debug(f">>> lang={lang}, text={text}, 文本长度x={x} 预估音频时长y={p} 实际音频时长:{y}")
+            return abs(y-p) >= hold, p, y
+
+    @staticmethod
+    def is_empty_noise(wav_arr, var_hold=2000, **kwargs):
+        # 如果合成的音频数组方差太小，意味着是空白音或者爆音，最多重试三次，正常方差示例:522218,849305
+        return np.var(wav_arr) <= var_hold
+
+    @staticmethod
+    def audio_check(wav_arr, wav_sr, text, lang, **kwargs):
+        cond1 = GSVModel.is_pure_noise(wav_arr, **kwargs)
+        cond2, p, y = GSVModel.is_abnormal_duration(wav_arr, wav_sr, text, lang, **kwargs)
+        cond3 = GSVModel.is_empty_noise(wav_arr, **kwargs)
+        if cond1:
+            logging.warning(f">>> 检测为 is_pure_noise")
+        if cond2:
+            logging.warning(f">>> 检测为 is_abnormal_duration (预测时长={p} 实际时长={y} lang='{lang}' text='{text}' )")
+        if cond3:
+            logging.warning(f">>> 检测为 is_empty_noise")
+        return any([cond1, cond2, cond3])
+
+    # 检测是否为参考音频泄露
+    def is_ref_leakage(self, wav_arr, wav_sr, ref_info: ReferenceInfo):
+        target_text = ref_info.text
+        tgt_lang = ref_info.lang if ref_info.lang in C.LANG_MAP.values() else C.LANG_MAP[ref_info.lang]
+        ref_lang = ref_info.lang if ref_info.lang in C.LANG_MAP.values() else C.LANG_MAP[ref_info.lang]
+        if self.ref_info is None:
+            # 第一次调用时推理一下参考音频
+            logging.warning(f">>> 第一次推理，检测时需要先推理一次参考音频 ")
+            self.ref_info = ref_info
+            synthesis_result = self.get_tts_wav(text=target_text, text_language=tgt_lang,
+                                                ref_wav_path=ref_info.audio_fp,
+                                                prompt_text=ref_info.text, prompt_language=ref_lang,
+                                                top_k=30, top_p=0.99, temperature=0.4, speed=1,
+                                                ref_free=False, no_cut=True)
+            self.ref_sr, self.ref_wav_int16 = list(synthesis_result)[-1]
+        elif any([ref_info.text != self.ref_info.text,
+                  ref_info.audio_fp != self.ref_info.audio_fp,
+                  ref_info.lang != self.ref_info.lang]):
+            # 参考音频和之前记录的有区别,视为第一次调用，重新推理参考音频
+            logging.warning(f">>> 参考音频信息变动，检测时需要先推理一次参考音频 ")
+            self.ref_info = ref_info
+            synthesis_result = self.get_tts_wav(text=target_text, text_language=tgt_lang,
+                                                ref_wav_path=ref_info.audio_fp,
+                                                prompt_text=ref_info.text, prompt_language=ref_lang,
+                                                top_k=30, top_p=0.99, temperature=0.4, speed=1,
+                                                ref_free=False, no_cut=True)
+            self.ref_sr, self.ref_wav_int16 = list(synthesis_result)[-1]
+
+        # ref_wav_d = self.ref_wav_int16.shape[0] / self.ref_sr
+        return wav_arr.shape[0] == self.ref_wav_int16.shape[0]
+
     # no_cut置为True时注意不要开头就打句号
     def predict(self, target_text, target_lang,
                 ref_info: ReferenceInfo = None,
                 top_k=20, top_p=1.0, temperature=0.99, speed=1,
-                ref_free: bool = False, no_cut: bool = False):
+                ref_free: bool = None, no_cut: bool = False, **kwargs):
         # Synthesize audio
-        synthesis_result = self.get_tts_wav(text=target_text, text_language=LANG_MAP[target_lang],
+        # target_lang是 en_us/zh_cn/jp_jp/kr_ko
+        # tgt_lang是 en/all_zh/all_jp/all_ko
+        tgt_lang = target_lang if target_lang in C.LANG_MAP.values() else C.LANG_MAP[target_lang]
+        ref_lang = ref_info.lang if ref_info.lang in C.LANG_MAP.values() else C.LANG_MAP[ref_info.lang]
+        if ref_free is None:
+            if tgt_lang in ["all_zh"]:
+                # 中文文本太短（小于8个字符）就强制触发ref_free
+                ref_free = len(target_text) <= 8
+            elif tgt_lang in ["en"]:
+                # 英文太短也是
+                ref_free = len(target_text.split(" ")) <= 8
+            else:
+                # 其他语言（日语韩语）20个字符 不太行，强制ref_free=True得了
+                # ref_free = len(target_text) <= 15
+                ref_free = True
+            if ref_free:
+                logging.warning(f"语言{tgt_lang} 合成文本过短，自动触发了强制ref_free (文本: '{target_text}')")
+        elif ref_free:
+            logging.info(f"ref_free=True 推理采用无参考音频模式")
+        synthesis_result = self.get_tts_wav(text=target_text, text_language=tgt_lang,
                                             ref_wav_path=ref_info.audio_fp,
-                                            prompt_text=ref_info.text, prompt_language=LANG_MAP[ref_info.lang],
+                                            prompt_text=ref_info.text, prompt_language=ref_lang,
                                             top_k=top_k, top_p=top_p, temperature=temperature, speed=speed,
-                                            ref_free=ref_free, no_cut=no_cut)
+                                            ref_free=ref_free, no_cut=no_cut, **kwargs)
 
-        result_list = list(synthesis_result)
+        wav_sr, wav_arr_int16 = list(synthesis_result)[-1]
+        if self.is_ref_leakage(wav_arr_int16, wav_sr, ref_info):
+            logging.error(f"严重问题 检测到参考音频泄露，直接按无参模式推理并返回 文本:{target_text} {target_lang}")
+            synthesis_result = self.get_tts_wav(text=target_text, text_language=tgt_lang,
+                                                ref_wav_path=ref_info.audio_fp,
+                                                prompt_text=ref_info.text, prompt_language=ref_lang,
+                                                top_k=top_k, top_p=top_p, temperature=temperature, speed=speed,
+                                                ref_free=True, no_cut=no_cut, **kwargs)
+            wav_sr, wav_arr_int16 = list(synthesis_result)[-1]
+            return wav_sr, wav_arr_int16
 
-        if result_list:
-            last_sampling_rate, last_audio_data = result_list[-1]
-            return last_sampling_rate, last_audio_data
-        else:
-            return None, None
+        cnt, max_cnt = 0, 1  # 如果合成的音频数组方差太小，意味着是空白音或者爆音，最多重试三次，正常方差示例:522218,849305
+        while self.audio_check(wav_arr_int16, wav_sr, target_text, target_lang) and cnt <= max_cnt:
+            if cnt == max_cnt:
+                ref_free = True
+                logging.warning(f">>> 检测到 异常音频，将进行第{cnt + 1}/{max_cnt + 1}次重试合成(最后一次 强制ref_free=True)")
+            else:
+                logging.warning(f">>> 检测到 异常音频，将进行第{cnt + 1}/{max_cnt + 1}次重试合成")
+            # 这里把温度调高，增加可能性
+            synthesis_result = self.get_tts_wav(text=target_text, text_language=tgt_lang,
+                                                ref_wav_path=ref_info.audio_fp,
+                                                prompt_text=ref_info.text, prompt_language=ref_lang,
+                                                top_k=top_k, top_p=top_p, temperature=max(0.8, temperature), speed=speed,
+                                                ref_free=ref_free, no_cut=no_cut, **kwargs)
+            wav_sr, wav_arr_int16 = list(synthesis_result)[-1]
+            logging.warning(f">>> 重新合成后 duration={wav_arr_int16.shape[0]/wav_sr} var={np.var(wav_arr_int16)}")
+            cnt += 1
+            if self.is_ref_leakage(wav_arr_int16, wav_sr, ref_info):
+                logging.error(
+                    f">>> 严重问题 检测到参考音频泄露，直接按无参模式推理并返回 文本:{target_text} {target_lang}")
+                synthesis_result = self.get_tts_wav(text=target_text, text_language=tgt_lang,
+                                                    ref_wav_path=ref_info.audio_fp,
+                                                    prompt_text=ref_info.text, prompt_language=ref_lang,
+                                                    top_k=top_k, top_p=top_p, temperature=temperature, speed=speed,
+                                                    ref_free=True, no_cut=no_cut, **kwargs)
+                wav_sr, wav_arr_int16 = list(synthesis_result)[-1]
+                return wav_sr, wav_arr_int16
+        return wav_sr, wav_arr_int16
 
 
+def webui_list_audios(directory, text_list=None, cmt_list=None, gr_share=False):
+    # 检查目录是否存在
+    assert os.path.exists(directory), f"指定的目录 {directory} 不存在。"
+
+    # 获取目录下所有的音频文件（假设支持 .wav、.mp3 格式，可按需添加其他格式）
+    audio_extensions = ('.wav', '.mp3', 'm4a')
+    audio_files = [os.path.join(directory, f) for f in os.listdir(directory) if f.lower().endswith(audio_extensions)]
+    audio_files = sorted(audio_files, key=lambda x: os.path.getmtime(x))
+    assert audio_files, f"指定的目录 {directory} 中没有找到音频文件 (.wav .mp3 .m4a)"
+
+    with gr.Blocks() as demo:
+        gr.Markdown("### 音频文件试听")
+        for idx,fp in enumerate(audio_files):
+            with gr.Row():
+                with gr.Column():
+                    gr.Audio(value=fp, type="filepath", label=os.path.basename(fp))
+                with gr.Column():
+                    with gr.Row():
+                        if text_list is not None:
+                            gr.Markdown(text_list[idx])
+                    with gr.Row():
+                        if cmt_list is not None:
+                            gr.Markdown(cmt_list[idx])
+        # gr.render()
+
+    if gr_share:
+        demo.launch(share=True)
+    else:
+        demo.launch(server_port=8002)
+    # demo.close()
+
+
+# 由于用到了相对路径的import，必须以module形式执行
+# python -m service_GSV.GSV_model <sid> <lang>
+# -- 这个没就绪 python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_KellyV2 en
+# python -m service_GSV.GSV_model test_cxm en
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_PhenixV2 en
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_PhenixV2 en manual
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_OrionV2 en
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_OrionV2.1 en
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_MarthaV2 en
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_ZoeV2 en
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_NinaV2 en
 if __name__ == '__main__':
-    sovits_model = "/Users/bytedance/AudioProject/GPT-SoVITS/SoVITS_weights/x_e8_s96.pth"
-    gpt_model = "/Users/bytedance/AudioProject/GPT-SoVITS/GPT_weights/x-e15.ckpt"
-    ref_audio = ReferenceInfo(audio_fp="/Users/bytedance/AudioProject/voice_sample/xn/vocals_as_reference.wav",
-                              text="我想问一下，就是咱们那个疫情防控政策",
-                              lang="ZH")
-    M = GSVModel(sovits_model_fp=sovits_model, gpt_model_fp=gpt_model)
+    local_test_dir = "audio_test"
+    if len(sys.argv) >= 3:
+        os.environ["TOKENIZERS_PARALLELISM"] = "false"
+        sid = sys.argv[1]
+        lang = sys.argv[2]
+        ref = sys.argv[3] if len(sys.argv) >= 4 else C.D_REF_SUFFIX
+        print(f">>> Inference with sid={sid} lang={lang} ref={ref}")
+        sovits_fp = R.get_sovits_fp(sid)
+        gpt_fp = R.get_gpt_fp(sid)
+        M = GSVModel(sovits_model_fp=sovits_fp, gpt_model_fp=gpt_fp)
+        ref_info = ReferenceInfo.from_sid(sid, suffix=ref)
 
-    sr, audio = M.predict(target_text="c测试",
-                          target_lang="ZH",
-                          ref_info=ref_audio,
-                          top_k=1, top_p=0, temperature=0,
-                          ref_free=False, no_cut=True)
-    sf.write(os.path.join("/Users/bytedance/Downloads", f"output_{time.time():.0f}.wav"), audio, sr)
+        # sf.write(os.path.join(opt_dir, "res_audio.wav"), np.hstack(audio_list), sr)
+    else:
+        # opt_dir = os.path.join(local_test_dir, "cxm_from_webui")
+        # os.makedirs(opt_dir, exist_ok=True)
+        # # sovits_model = "/root/autodl-fs/models/cxm_from_webui/sovits_xxx_e8_s80.pth"
+        # # gpt_model = "/root/autodl-fs/models/cxm_from_webui/gpt_xxx-e15.ckpt"
+        # # ref_audio = ReferenceInfo(audio_fp="/root/autodl-fs/models/cxm_from_webui/ref_audio.wav",
+        # #                           text="大家好，欢迎来到我的直播间，我是你们的主播小美。",
+        # #                           lang="ZH")
 
-    sys.exit(0)
+        lang = "en"
+        sid = "lydia"
+        sovits_fp = "/root/GPT-SoVITS/SoVITS_weights_v2/xxx_e8_s168.pth"
+        gpt_fp = "/root/GPT-SoVITS/GPT_weights_v2/xxx-e15.ckpt"
+        M = GSVModel(sovits_model_fp=sovits_fp, gpt_model_fp=gpt_fp)
+        ref_info = ReferenceInfo(
+            audio_fp="/root/autodl-fs/voice_sample/Lýdia_Machová/denoise_opt/Lýdia_Machová-1.wav_0000000000_0000138240.wav",
+            text="In fact, I love it so much that I like to learn a new language every two years.",
+            lang="EN")
 
-    # sovits_model = "/Users/bytedance/AudioProject/GPT-SoVITS/SoVITS_weights/XiaoLinShuo_e4_s60.pth"
-    # gpt_model = "/Users/bytedance/AudioProject/GPT-SoVITS/GPT_weights/XiaoLinShuo-e15.ckpt"
-    # ref_audio = ReferenceInfo(audio_fp="/Users/bytedance/AudioProject/voice_sample/XiaoLinShuo/denoised/2_vocals.wav_0005554240_0005717760.wav",
-    #                           text="所以说啊这二十年真的是在斯大林的带领下，把前苏联的经济带上了一个新高度。",
-    #                           lang="ZH")
-    # ref_audio = ReferenceInfo(audio_fp="/Users/bytedance/AudioProject/voice_sample/XiaoLinShuo/denoised/2_vocals.wav_0004883520_0005045120.wav",
-    #                           text="于是一九二八年之后，斯大林的前三个五年计划哈，那可谓是效果拔群。",
-    #                           lang="ZH")
+        if False:  # post2oss
+            import utils_audio
+            import subprocess
+            url = utils_audio.post2qiniu(sovits_fp, R.get_sovits_osskey(sid))
+            logging.info(f">>> url as: '{url}'")
+            logging.info(">>> Uploading gpt model to qiniu.")
+            url = utils_audio.post2qiniu(gpt_fp, R.get_gpt_osskey(sid))
+            logging.info(f">>> url as: '{url}'")
+            logging.info(">>> Uploading default_ref to qiniu.")
+            res = subprocess.run(["cp", "/root/autodl-fs/voice_sample/Lýdia_Machová/denoise_opt/Lýdia_Machová-1.wav_0000000000_0000138240.wav",
+                                  R.get_ref_audio_fp(sid, C.D_REF_SUFFIX)],
+                                 capture_output=True, text=True, encoding='utf-8')
+            assert res.returncode == 0, res.stdout.strip()
+            res = subprocess.run(["echo", "\"EN|In fact, I love it so much that I like to learn a new language every two years.\"",
+                                  ">",
+                                  R.get_ref_text_fp(sid, C.D_REF_SUFFIX)],
+                                 capture_output=True, text=True, encoding='utf-8')
+            assert res.returncode == 0, res.stdout.strip()
+            audio_url = utils_audio.post2qiniu(R.get_ref_audio_fp(sid, C.D_REF_SUFFIX), R.get_ref_audio_osskey(sid))
+            text_url = utils_audio.post2qiniu(R.get_ref_text_fp(sid, C.D_REF_SUFFIX), R.get_ref_text_osskey(sid))
+            logging.info(f">>> [audio_url]:'{audio_url}' [text_url]:'{text_url}'")
 
-    M = GSVModel(sovits_model_fp=sovits_model, gpt_model_fp=gpt_model)
-
-    sr, audio = M.predict(target_text="您好，我是您的个人助理！您可以问我今天天气如何。",
-                          target_lang="ZH",
-                          ref_info=ref_audio,
-                          top_k=1, top_p=0, temperature=0,
-                          ref_free=False, no_cut=True)
-    sf.write(os.path.join(TMP_DIR, f"output_{time.time():.0f}.wav"), audio, sr)
-
-    sr, audio = M.predict(target_text="我想问一下，关于极端天气防控的问题。",
-                          target_lang="ZH",
-                          ref_info=ref_audio,
-                          top_k=1, top_p=0, temperature=0,
-                          ref_free=False, no_cut=True)
-    sf.write(os.path.join(TMP_DIR, f"output_{time.time():.0f}.wav"), audio, sr)
-
-    sr, audio = M.predict(target_text="Hello sir, I'm your personal assistant. you can ask me about the whether.",
-                          target_lang="EN",
-                          ref_info=ref_audio,
-                          top_k=1, top_p=0, temperature=0,
-                          ref_free=False, no_cut=True)
-    sf.write(os.path.join(TMP_DIR, f"output_ref_{time.time():.0f}_en.wav"), audio, sr)
-
-    long_text = ("The sun rises, painting the sky with hues of gold and pink. The birds chirp merrily, "
-                 "greeting the new day. A gentle breeze blows, carrying the fragrance of fresh flowers. "
-                 "It's a beautiful start to another wonderful day.")
-    for text in long_text.split("\\."):
-        sr, audio = M.predict(target_text=text,
-                              target_lang="EN",
-                              ref_info=ref_audio,
-                              top_k=1, top_p=0, temperature=0,
-                              ref_free=False, no_cut=True)
-        sf.write(os.path.join(TMP_DIR, f"output_ref_{time.time():.0f}_en.wav"), audio, sr)
+    opt_dir = os.path.join(local_test_dir, sid)
+    if os.path.exists(opt_dir):
+        shutil.rmtree(opt_dir)
+    os.makedirs(opt_dir, exist_ok=True)
+    audio_list = []
+    cmt_list = []
+    text_fp = "./core/quality_check/text_en_us.txt"
+    with open(text_fp, "r", encoding="utf-8") as fr:
+        lines = [i.strip() for i in fr.readlines()]
+        lines = [i for i in lines if len(i) >= 1]
+    for idx, line in enumerate(lines):
+        begin_t = time.time()
+        logging.info(f">>> 开始合成({idx}/{len(lines)}): {line}")
+        sr, audio = M.predict(target_text=line,
+                              target_lang=lang,
+                              ref_info=ref_info,
+                              top_k=30, top_p=0.99, temperature=0.6,
+                              no_cut=True)
+        end_t = time.time()
+        audio_list.append(audio)
+        opt_fp = f"audio{idx}_{len(line.split(' '))}token_{(end_t - begin_t) * 1000:.0f}ms.wav"
+        is_leak = M.is_ref_leakage(audio, sr, ref_info)
+        is_any_abnormal = M.audio_check(wav_arr=audio, wav_sr=sr, text=line, lang=lang)
+        opt_fp = os.path.join(opt_dir, opt_fp)
+        sf.write(opt_fp, audio, sr)
+        cmt_list.append(
+            f"单词数: {len(line.split(' '))} 合成耗时: {(end_t - begin_t) * 1000:.0f}ms 异常检测: leak={is_leak} abnormal={is_any_abnormal}")
+        # from pydub import AudioSegment
+        # audio_segment = AudioSegment(
+        #     audio.tobytes(),
+        #     frame_rate=sr,
+        #     sample_width=audio.dtype.itemsize,
+        #     channels=1
+        # )
+        # audio_segment.export(opt_fp, format='m4a')
+    webui_list_audios(opt_dir, text_list=lines, cmt_list=cmt_list)

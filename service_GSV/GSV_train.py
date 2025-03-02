@@ -16,20 +16,15 @@ import multiprocessing as mp
 
 from urllib.parse import unquote
 from subprocess import Popen, getstatusoutput
-
-import numpy as np
-import librosa
-import torch
-from flask import Flask, request
+from threading import Thread
 
 import requests as http_requests  # 给 requests 库设置别名
 
 import utils_audio
-import GSV_const as C  # 使用已有的常量配置
-from GSV_const import Route as R
-from GSV_model import GSVModel, ReferenceInfo
+from . import GSV_const as C
+from .GSV_const import Route as R
 import pika
-
+import subprocess
 assert getstatusoutput("ls tools")[0] == 0, "必须在项目根目录下执行不然会有路径问题 e.g. python GPT_SoVITS/GSV_train.py"
 
 # 配置日志
@@ -458,7 +453,7 @@ def train_model(task):
     """
 
     sid = task['speaker']
-    LANG = C.LANG_MAP[task['lang']]
+    LANG = task['lang'] if task['lang'] in C.LANG_MAP.values() else C.LANG_MAP[task['lang']]
     data_urls = task['data_urls']
     post2oss = "1"
 
@@ -491,16 +486,16 @@ def train_model(task):
     logger.info(">>> At step_convert2wav")
     step_convert2wav(INPUT_DIR)
     logger.info(">>> At step_slice")
-    step_slice(INPUT_DIR, SLICE_DIR, min_interval=80 if LANG == "EN" else 100)
+    step_slice(INPUT_DIR, SLICE_DIR, min_interval=80 if LANG.lower() in ["en", "en_us"] else 300)
     logger.info(">>> At step_denoise")
-    step_denoise(SLICE_DIR,DENOISED_DIR)
+    step_denoise(SLICE_DIR, DENOISED_DIR)
     logger.info(">>> At step_asr")
-    step_asr(DENOISED_DIR,ASR_DIR,LANG)
+    step_asr(DENOISED_DIR, ASR_DIR, LANG)
 
     log_audio_statistics(ASR_DIR)
 
     logger.info(">>> At step_apply_pretrains")
-    step_apply_pretrains(ASR_FP,EXP_ROOT_DIR,IS_HALF,sid)
+    step_apply_pretrains(ASR_FP, EXP_ROOT_DIR, IS_HALF, sid)
     logger.info(">>> At step_train_sovits")
     step_train_sovits(sid,8,IS_HALF,EXP_ROOT_DIR,SoVITS_weight_root,TMP_DIR)
     logger.info(">>> At step_train_gpt")
@@ -527,8 +522,6 @@ def train_model(task):
     infos = line.split("|")
     _audio_fp = infos[0]
     _lang = infos[2]
-    _lang_map = {v: k for k, v in C.LANG_MAP.items()}
-    _lang = _lang_map[_lang]
     _text = infos[3]
     with open(R.get_ref_text_fp(sid, C.D_REF_SUFFIX), "w") as fpw:
         fpw.write(f"{_lang}|{_text}")
@@ -563,6 +556,15 @@ queue_tran_request = "queue_tran_request"
 queue_tran_result = "queue_tran_result"
 
 
+# 创建流读取函数
+def log_stream(stream, logger, level=logging.INFO):
+    while True:
+        line = stream.readline()
+        if not line:
+            break
+        if line.strip():
+            logger.log(level, line.strip())
+            
 def train_consumer():
     connection, channel = connect_to_rabbitmq()
 
@@ -582,10 +584,60 @@ def train_consumer():
                 continue  # 如果没有消息，等待下一次
             # 解析任务消息
             task = json.loads(body)
-            logger.info(f"Received training task: {task}")
+            #logger.info(f"Received training task: {task}")
 
             # 执行训练逻辑
-            train_model(task)
+            #train_model(task)
+            
+            #1.0.10.3 更新v2模型，方法改成直接用python命令调用脚本，如果脚本没有异常则发送训练成功消息，如果有异常则发送训练失败消息
+            # 执行训练逻辑
+            sid = task['speaker']
+            LANG = task['lang']
+            data_urls = task['data_urls']
+            # 只取 data_urls 的第一个元素
+            first_data_url = str(data_urls[0])  # 确保是字符串类型
+            try:
+                # 调用训练脚本
+                logger.info(f">>> speaker='{sid}', Language='{LANG}'")
+                logger.info(f">>> data_urls: {first_data_url}")
+               # 启动子进程（添加 -u 参数禁用缓冲）
+                proc = subprocess.Popen(
+                    [sys.executable, "-u", "-m", "service_GSV.GSV_train_standalone", sid, LANG, first_data_url],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1,  # 行缓冲
+                    universal_newlines=True,
+                )
+
+                # 创建并启动日志线程
+                stdout_thread = Thread(target=log_stream, args=(proc.stdout, logger, logging.INFO))
+                stderr_thread = Thread(target=log_stream, args=(proc.stderr, logger, logging.ERROR))
+                stdout_thread.start()
+                stderr_thread.start()
+
+                # 等待进程结束
+                return_code = proc.wait()
+
+                # 等待日志线程结束
+                stdout_thread.join()
+                stderr_thread.join()
+
+                if  return_code == 0:
+                    logger.info("Training script executed successfully")
+                    result= {"code": 0, "msg": "Model Training finish.", "result": sid}
+                    # 直接重新建立连接，因为tran耗时比较久，这时候断开了
+                    connection, channel = connect_to_rabbitmq()
+                    # 发送结果到队列
+                    send_result_with_retry(channel, result)
+                else:
+                    logger.error(f"Training script failed with error")
+                    result = {"code": 1, "msg": "Model Training failed.", "result": task.get('speaker', 'unknown')}
+                    # 发送结果到队列
+                    send_result_with_retry(channel, result)
+            except Exception as e:
+                logger.error(f"Error during training script execution: {e}", exc_info=True)            
+
 
         except pika.exceptions.AMQPConnectionError:
             logger.error("Connection to RabbitMQ lost, attempting to reconnect...")
@@ -624,7 +676,7 @@ def connect_to_rabbitmq():
         "ports": [5672, 5673, 5674],
         "username": "admin",
         "password": "aibeeo",
-        "virtual_host": "device-public"
+        "virtual_host": "test-0208"
     }
 
     # 连接到 RabbitMQ
@@ -658,7 +710,7 @@ if __name__ == "__main__":
             instance_id = "default"  # 如果未传入参数，使用默认值
 
         # 日志目录（代码中自动创建，无需脚本管理）
-        log_dir = "../GPT_SoVITS/logs"
+        log_dir = "logs"
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
             print(f"Created log directory: {log_dir}")

@@ -38,6 +38,12 @@ language_code_list = [
 def execute_asr(input_folder, output_folder, model_size, language, precision):
     default_fp = f'tools/asr/models/faster-whisper-{model_size}'
     model_path = default_fp if os.path.exists(default_fp) else model_size
+    if "-local" in model_path and os.path.isdir(model_path):
+        with open(os.path.join(model_path, "refs", "main"), "r") as fr:
+            _version = fr.readlines()[0]
+            fp_whisper = os.path.join(model_path, "snapshots", _version)
+            model_path = fp_whisper
+        logging.info(f">>> fasterwhipser load from '{model_path}'")
     # if '-local' in model_size:
     #     model_size = model_size[:-6]
     #     model_path = f'tools/asr/models/faster-whisper-{model_size}'

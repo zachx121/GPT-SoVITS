@@ -1,7 +1,11 @@
 import scipy
 import numpy as np
 import audioop
+from urllib.parse import unquote
 from subprocess import getstatusoutput
+import requests
+import logging
+import multiprocessing as mp
 
 SAMPLE_RATE = 16000  # 采样频率
 SAMPLE_WIDTH = 2  # 标准的16位PCM音频中，每个样本占用2个字节
@@ -82,6 +86,47 @@ def play_audio_buffer_with_volume(audio_buffer, sr, channels=1, dtype=np.int16):
     p.terminate()
 
 
+def get_latest_fp(inp_dir):
+    _inp_dir = os.path.expanduser(inp_dir)
+    fp = sorted(os.listdir(_inp_dir),
+                key=lambda x: os.path.getmtime(os.path.join(_inp_dir, x)), reverse=True)[0]
+    return fp
+
+
+def download_file(url, target_dir):
+    """ 下载文件并保存到指定目录 """
+    filename = os.path.basename(unquote(url).split("?")[0])
+    file_path = os.path.join(target_dir, filename)
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            with open(file_path, 'wb') as f:
+                f.write(response.content)
+            logging.info(f"Downloaded: {filename}")
+        else:
+            # 当状态码不是 200 时，抛出异常
+            raise Exception(f"Failed to download {url}, status code {response.status_code}")
+    except Exception as e:
+        # 捕获异常并重新抛出
+        raise Exception(f"Error downloading {url}: {str(e)}")
+
+
+def download_files_in_parallel(urls, target_dir, num_workers=4):
+    """ 并行下载多个文件 """
+    with mp.Pool(num_workers) as pool:
+        try:
+            # 异步执行下载任务
+            results = [pool.apply_async(download_file, (url, target_dir)) for url in urls]
+            # 获取每个任务的结果
+            for result in results:
+                result.get()  # 获取结果，如果有异常会在这里抛出
+        except Exception as e:
+            # 当捕获到异常时，终止进程池并重新抛出异常
+            pool.terminate()
+            pool.join()
+            raise Exception(f"Download failed: {str(e)}")
+
+
 from qiniu import Auth, put_file, etag, BucketManager
 import qiniu.config
 import os
@@ -119,8 +164,8 @@ def check_on_qiniu(keys, bucket_name=QiniuConst.bucket_name):
     return [i['key'] for i in ret['items'] if all(j in i['key'] for j in keys)]
 
 
-def get_url_from_qiniu(key):
-    private_url = Auth(QiniuConst.access_key, QiniuConst.secret_key).private_download_url('%s/%s' % (QiniuConst.bucket_domain, key), expires=3600)
+def get_url_from_qiniu(key, domain=QiniuConst.bucket_domain):
+    private_url = Auth(QiniuConst.access_key, QiniuConst.secret_key).private_download_url('%s/%s' % (domain, key), expires=3600)
     return private_url
 
 
@@ -133,4 +178,8 @@ def download_from_qiniu(key, fp):
     assert s == 0, f"download failed. output:{o}"
 
 if __name__ == '__main__':
-    print(get_url_from_qiniu("ChineseASR_Damo.tgz"))
+    print(f"""wget -O 'G2PWModel.tgz' '{get_url_from_qiniu("models/G2PWModel.tgz", domain=QiniuConst.bucket_public_domain)}'""")
+    print(f"""wget -O 'GSV_pretrained_models.tgz' '{get_url_from_qiniu("models/GSV_pretrained_models.tgz", domain=QiniuConst.bucket_public_domain)}'""")
+    print(f"""wget -O 'ChineseASR_Damo.tgz' '{get_url_from_qiniu("ChineseASR_Damo.tgz", domain=QiniuConst.bucket_public_domain)}'""")
+    print(f"""wget -O 'faster_whisper_large_v3.tgz' '{get_url_from_qiniu("models/faster_whisper_large_v3.tgz", domain=QiniuConst.bucket_public_domain)}'""")
+    # print(check_on_qiniu("model/clone/device/20250211/1000294265/"))
