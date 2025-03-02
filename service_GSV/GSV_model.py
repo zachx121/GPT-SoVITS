@@ -5,7 +5,7 @@ import sys
 #a
 logging.getLogger('matplotlib').setLevel(logging.WARNING)
 logging.getLogger('jieba_fast').setLevel(logging.WARNING)
-logging.basicConfig(format='[%(asctime)s-%(levelname)s-%(funcName)s]: %(message)s',
+logging.basicConfig(format='[%(asctime)s-%(levelname)s]: %(message)s',
                     datefmt="%Y-%m-%d %H:%M:%S",
                     level=logging.INFO)
 
@@ -13,6 +13,7 @@ import re
 import time
 from time import time as ttime
 import os
+import shutil
 import numpy as np
 import soundfile as sf
 import json
@@ -20,6 +21,7 @@ import librosa
 import torch
 import traceback
 import LangSegment
+import gradio as gr
 from subprocess import getstatusoutput
 from . import GSV_const as C
 from .GSV_const import Route as R
@@ -492,6 +494,7 @@ class GSVModel:
 
     @staticmethod
     def is_abnormal_duration(wav_arr, wav_sr, text, lang, hold=3, **kwargs):
+        return False, 0, 0
         lang = lang.lower()
         get_token_num = lambda t, tlang: len(t.split(" ")) if tlang in ["en", "en_us"] else len(t)
         # 根据角色音从 estimate_audio_len.py 里拟合出来的字符数与音频时长公式
@@ -605,7 +608,7 @@ class GSVModel:
 
         wav_sr, wav_arr_int16 = list(synthesis_result)[-1]
         if self.is_ref_leakage(wav_arr_int16, wav_sr, ref_info):
-            logging.error(f">>> 严重问题 检测到参考音频泄露，直接按无参模式推理并返回 文本:{target_text} {target_lang}")
+            logging.error(f"严重问题 检测到参考音频泄露，直接按无参模式推理并返回 文本:{target_text} {target_lang}")
             synthesis_result = self.get_tts_wav(text=target_text, text_language=tgt_lang,
                                                 ref_wav_path=ref_info.audio_fp,
                                                 prompt_text=ref_info.text, prompt_language=ref_lang,
@@ -616,10 +619,11 @@ class GSVModel:
 
         cnt, max_cnt = 0, 1  # 如果合成的音频数组方差太小，意味着是空白音或者爆音，最多重试三次，正常方差示例:522218,849305
         while self.audio_check(wav_arr_int16, wav_sr, target_text, target_lang) and cnt <= max_cnt:
-            logging.warning(f">>> 疑似异常音频，第{cnt+1}/{max_cnt+1}次重试合成")
             if cnt == max_cnt:
-                logging.warning(f">>> 最后一次重试合成 强制ref_free=True")
                 ref_free = True
+                logging.warning(f">>> 检测到 异常音频，将进行第{cnt + 1}/{max_cnt + 1}次重试合成(最后一次 强制ref_free=True)")
+            else:
+                logging.warning(f">>> 检测到 异常音频，将进行第{cnt + 1}/{max_cnt + 1}次重试合成")
             # 这里把温度调高，增加可能性
             synthesis_result = self.get_tts_wav(text=target_text, text_language=tgt_lang,
                                                 ref_wav_path=ref_info.audio_fp,
@@ -627,7 +631,7 @@ class GSVModel:
                                                 top_k=top_k, top_p=top_p, temperature=max(0.8, temperature), speed=speed,
                                                 ref_free=ref_free, no_cut=no_cut, **kwargs)
             wav_sr, wav_arr_int16 = list(synthesis_result)[-1]
-            logging.warning(f"    重新合成后 duration={wav_arr_int16.shape[0]/wav_sr} var={np.var(wav_arr_int16)}")
+            logging.warning(f">>> 重新合成后 duration={wav_arr_int16.shape[0]/wav_sr} var={np.var(wav_arr_int16)}")
             cnt += 1
             if self.is_ref_leakage(wav_arr_int16, wav_sr, ref_info):
                 logging.error(
@@ -640,6 +644,38 @@ class GSVModel:
                 wav_sr, wav_arr_int16 = list(synthesis_result)[-1]
                 return wav_sr, wav_arr_int16
         return wav_sr, wav_arr_int16
+
+
+def webui_list_audios(directory, text_list=None, cmt_list=None, gr_share=False):
+    # 检查目录是否存在
+    assert os.path.exists(directory), f"指定的目录 {directory} 不存在。"
+
+    # 获取目录下所有的音频文件（假设支持 .wav、.mp3 格式，可按需添加其他格式）
+    audio_extensions = ('.wav', '.mp3', 'm4a')
+    audio_files = [os.path.join(directory, f) for f in os.listdir(directory) if f.lower().endswith(audio_extensions)]
+    audio_files = sorted(audio_files, key=lambda x: os.path.getmtime(x))
+    assert audio_files, f"指定的目录 {directory} 中没有找到音频文件 (.wav .mp3 .m4a)"
+
+    with gr.Blocks() as demo:
+        gr.Markdown("### 音频文件试听")
+        for idx,fp in enumerate(audio_files):
+            with gr.Row():
+                with gr.Column():
+                    gr.Audio(value=fp, type="filepath", label=os.path.basename(fp))
+                with gr.Column():
+                    with gr.Row():
+                        if text_list is not None:
+                            gr.Markdown(text_list[idx])
+                    with gr.Row():
+                        if cmt_list is not None:
+                            gr.Markdown(cmt_list[idx])
+        # gr.render()
+
+    if gr_share:
+        demo.launch(share=True)
+    else:
+        demo.launch(server_port=8002)
+    # demo.close()
 
 
 # 由于用到了相对路径的import，必须以module形式执行
@@ -656,7 +692,7 @@ class GSVModel:
 if __name__ == '__main__':
     local_test_dir = "audio_test"
     if len(sys.argv) >= 3:
-        os.environ["TOKENIZERS_PARALLELISM"]="false"
+        os.environ["TOKENIZERS_PARALLELISM"] = "false"
         sid = sys.argv[1]
         lang = sys.argv[2]
         ref = sys.argv[3] if len(sys.argv) >= 4 else C.D_REF_SUFFIX
@@ -667,42 +703,61 @@ if __name__ == '__main__':
 
         ref_info = ReferenceInfo.from_sid(sid, suffix=ref)
         opt_dir = os.path.join(local_test_dir, sid)
+        if os.path.exists(opt_dir):
+            shutil.rmtree(opt_dir)
         os.makedirs(opt_dir, exist_ok=True)
         audio_list = []
-        with open("./core/quality_check/text_en_us.txt", "r", encoding="utf-8") as fr:
+        cmt_list = []
+        text_fp = "./core/quality_check/text_en_us.txt"
+        with open(text_fp, "r", encoding="utf-8") as fr:
             lines = [i.strip() for i in fr.readlines()]
-            for line in lines:
-                print(f">>> process: {line}")
-                sr, audio = M.predict(target_text=line,
-                                      target_lang=lang,
-                                      ref_info=ref_info,
-                                      top_k=30, top_p=0.99, temperature=0.6,
-                                      no_cut=True)
-                is_leak = M.is_ref_leakage(audio, sr, ref_info)
-                is_abnormal = M.audio_check(wav_arr=audio, wav_sr=sr, text=line, lang=lang)
-                if is_leak:
-                    opt_fp = os.path.join(opt_dir, f"LEAK_audio_{time.time():.0f}_{line.replace(' ', '_')[:5]}.wav")
-                elif is_abnormal:
-                    opt_fp = os.path.join(opt_dir, f"ABNORMAL_audio_{time.time():.0f}_{line.replace(' ', '_')[:5]}.wav")
-                else:
-                    opt_fp = os.path.join(opt_dir, f"audio_{time.time():.0f}_{line.replace(' ','_')[:5]}.wav")
-                os.makedirs(os.path.dirname(opt_fp), exist_ok=True)
-                audio_list.append(audio)
-                sf.write(opt_fp, audio, sr)
-
-        sf.write(os.path.join(opt_dir, "res_audio.wav"), np.hstack(audio_list), sr)
+        for idx, line in enumerate(lines):
+            begin_t = time.time()
+            logging.info(f">>> 开始合成({idx}/{len(lines)}): {line}")
+            sr, audio = M.predict(target_text=line,
+                                  target_lang=lang,
+                                  ref_info=ref_info,
+                                  top_k=30, top_p=0.99, temperature=0.6,
+                                  no_cut=True)
+            end_t = time.time()
+            audio_list.append(audio)
+            opt_fp = f"audio{idx}_{len(line.split(' '))}token_{(end_t-begin_t)*1000:.0f}ms.wav"
+            is_leak = M.is_ref_leakage(audio, sr, ref_info)
+            is_any_abnormal = M.audio_check(wav_arr=audio, wav_sr=sr, text=line, lang=lang)
+            opt_fp = os.path.join(opt_dir, opt_fp)
+            sf.write(opt_fp, audio, sr)
+            cmt_list.append(f"单词数: {len(line.split(' '))} 合成耗时: {(end_t-begin_t)*1000:.0f}ms 异常检测: leak={is_leak} abnormal={is_any_abnormal}")
+            # from pydub import AudioSegment
+            # audio_segment = AudioSegment(
+            #     audio.tobytes(),
+            #     frame_rate=sr,
+            #     sample_width=audio.dtype.itemsize,
+            #     channels=1
+            # )
+            # audio_segment.export(opt_fp, format='m4a')
+        webui_list_audios(opt_dir, text_list=lines, cmt_list=cmt_list)
+        # sf.write(os.path.join(opt_dir, "res_audio.wav"), np.hstack(audio_list), sr)
     else:
-        opt_dir = os.path.join(local_test_dir, "cxm_from_webui")
+        # opt_dir = os.path.join(local_test_dir, "cxm_from_webui")
+        # os.makedirs(opt_dir, exist_ok=True)
+        # # sovits_model = "/root/autodl-fs/models/cxm_from_webui/sovits_xxx_e8_s80.pth"
+        # # gpt_model = "/root/autodl-fs/models/cxm_from_webui/gpt_xxx-e15.ckpt"
+        # # ref_audio = ReferenceInfo(audio_fp="/root/autodl-fs/models/cxm_from_webui/ref_audio.wav",
+        # #                           text="大家好，欢迎来到我的直播间，我是你们的主播小美。",
+        # #                           lang="ZH")
+
+        opt_dir = os.path.join(local_test_dir, "xxx")
         os.makedirs(opt_dir, exist_ok=True)
-        sovits_model = "/root/autodl-fs/models/cxm_from_webui/sovits_xxx_e8_s80.pth"
-        gpt_model = "/root/autodl-fs/models/cxm_from_webui/gpt_xxx-e15.ckpt"
-        ref_audio = ReferenceInfo(audio_fp="/root/autodl-fs/models/cxm_from_webui/ref_audio.wav",
-                                  text="大家好，欢迎来到我的直播间，我是你们的主播小美。",
-                                  lang="ZH")
+        sovits_model = "/root/GPT-SoVITS/SoVITS_weights_v2/xxx_e8_s168.pth"
+        gpt_model = "/root/GPT-SoVITS/GPT_weights_v2/xxx-e15.ckpt"
+        ref_audio = ReferenceInfo(audio_fp="/root/autodl-fs/voice_sample/Lýdia_Machová/denoise_opt/Lýdia_Machová-1.wav_0000000000_0000138240.wav",
+                                  text="In fact, I love it so much that I like to learn a new language every two years.",
+                                  lang="EN")
         M = GSVModel(sovits_model_fp=sovits_model, gpt_model_fp=gpt_model)
 
-
+        lines = []
         for text in ["测试","测试测试","测试效果","你好","今天天气如何","我是你们的好朋友"]:
+            lines.append(text)
             sr, audio = M.predict(target_text=text,
                                   target_lang="ZH",
                                   ref_info=ref_audio,
@@ -723,10 +778,11 @@ if __name__ == '__main__':
                      "Hello hello hello hello, are you sure",
                      "Isn't this great?",
                      long_text]:
+            lines.append(text)
             sr, audio = M.predict(target_text=text,
                                   target_lang="EN",
                                   ref_info=ref_audio,
-                                  top_k=20, top_p=1.0, temperature=1.0,
+                                  top_k=20, top_p=1.0, temperature=0.6,
                                   no_cut=True)
             sf.write(os.path.join(opt_dir, f"output_len{len(text.split(' '))}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
 
@@ -736,10 +792,11 @@ if __name__ == '__main__':
                      "何時に会いましょうか。",  # 我们几点见面呢？
                      "ごめんください 何時に会いましょうか 毎朝ジョギングをします。",  # 有人吗；打扰了。 我们几点见面呢？ 我每天早上慢跑。
                      ]:
+            lines.append(text)
             sr, audio = M.predict(target_text=text,
                                   target_lang="JP",
                                   ref_info=ref_audio,
-                                  top_k=20, top_p=1.0, temperature=1.0,
+                                  top_k=20, top_p=1.0, temperature=0.6,
                                   no_cut=True)
             sf.write(os.path.join(opt_dir, f"output_len{len(text)}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
 
@@ -748,12 +805,14 @@ if __name__ == '__main__':
                      "저는 영화를 보고 싶어요.",
                      "안녕하세요 안녕히 계세요.저는 영화를 보고 싶어요",  # 我想看电影。
                      ]:
+            lines.append(text)
             sr, audio = M.predict(target_text=text,
                                   target_lang="KO",
                                   ref_info=ref_audio,
-                                  top_k=20, top_p=1.0, temperature=1.0,
+                                  top_k=20, top_p=1.0, temperature=0.6,
                                   no_cut=True)
             sf.write(os.path.join(opt_dir, f"output_len{len(text)}_{text.replace(' ','_')[:5]}.wav"), audio, sr)
 
+        webui_list_audios(opt_dir, text_list=lines)
         sys.exit(0)
 
