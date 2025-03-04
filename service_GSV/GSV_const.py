@@ -76,19 +76,19 @@ class Route:
         return f"models/{sid}/{sid}_gpt"
 
     @staticmethod
-    def get_ref_audio_osskey(sid):
-        return f"models/{sid}/{sid}_ref_audio_default.wav"
+    def get_ref_audio_osskey(sid, suffix=D_REF_SUFFIX):
+        return f"models/{sid}/{sid}_ref_audio_{suffix}.wav"
 
     @staticmethod
-    def get_ref_text_osskey(sid):
-        return f"models/{sid}/{sid}_ref_text_default.txt"
+    def get_ref_text_osskey(sid, suffix=D_REF_SUFFIX):
+        return f"models/{sid}/{sid}_ref_text_{suffix}.txt"
 
     @staticmethod
-    def get_ref_audio_fp(sid, suffix):
+    def get_ref_audio_fp(sid, suffix=D_REF_SUFFIX):
         return os.path.join(VOICE_SAMPLE_DIR, sid, f'ref_audio_{suffix}.wav')
 
     @staticmethod
-    def get_ref_text_fp(sid, suffix):
+    def get_ref_text_fp(sid, suffix=D_REF_SUFFIX):
         return os.path.join(VOICE_SAMPLE_DIR, sid, f'ref_text_{suffix}.txt')
 
 
