@@ -70,7 +70,8 @@ rabbitmq_config = {
     "ports": [5672, 5673, 5674],
     "username": "admin",
     "password": "aibeeo",
-    "virtual_host": "test-0208"
+    "virtual_host": "test-0208",
+    # "virtual_host": "device-public"
 }
 queue_service_inference_request_prefix='queue_service_inference_request_'
 exchange_service_load_model_result='exchange_service_load_model_result'
