@@ -493,8 +493,7 @@ class GSVModel:
             return False  # 不是纯噪声
 
     @staticmethod
-    def is_abnormal_duration(wav_arr, wav_sr, text, lang, hold=3, **kwargs):
-        return False, 0, 0
+    def is_abnormal_duration(wav_arr, wav_sr, text, lang, hold1=6, hold2=2, **kwargs):
         lang = lang.lower()
         get_token_num = lambda t, tlang: len(t.split(" ")) if tlang in ["en", "en_us"] else len(t)
         # 根据角色音从 estimate_audio_len.py 里拟合出来的字符数与音频时长公式
@@ -524,7 +523,9 @@ class GSVModel:
         else:
             # 如果实际时长与预估时长差距超过3s，认为是异常音频
             logging.debug(f">>> lang={lang}, text={text}, 文本长度x={x} 预估音频时长y={p} 实际音频时长:{y}")
-            return abs(y-p) >= hold, p, y
+            # 只拦截过长音频
+            is_abnormal = y-p >= hold1 or y/p >= hold2
+            return is_abnormal, p, y
 
     @staticmethod
     def is_empty_noise(wav_arr, var_hold=2000, **kwargs):
@@ -646,7 +647,7 @@ class GSVModel:
         return wav_sr, wav_arr_int16
 
 
-def webui_list_audios(directory, text_list=None, cmt_list=None, gr_share=False):
+def webui_list_audios(directory, text_list=None, cmt_list=None, gr_share=False, port=6006):
     # 检查目录是否存在
     assert os.path.exists(directory), f"指定的目录 {directory} 不存在。"
 
@@ -674,7 +675,7 @@ def webui_list_audios(directory, text_list=None, cmt_list=None, gr_share=False):
     if gr_share:
         demo.launch(share=True)
     else:
-        demo.launch(server_port=8002)
+        demo.launch(server_port=port)
     # demo.close()
 
 
@@ -689,6 +690,7 @@ def webui_list_audios(directory, text_list=None, cmt_list=None, gr_share=False):
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_MarthaV2 en
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_ZoeV2 en
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_NinaV2 en
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_User_3125_20250307140742211_jwa0 en
 if __name__ == '__main__':
     local_test_dir = "audio_test"
     if len(sys.argv) >= 3:
@@ -712,15 +714,38 @@ if __name__ == '__main__':
         # #                           text="大家好，欢迎来到我的直播间，我是你们的主播小美。",
         # #                           lang="ZH")
 
+        # lang = "en"
+        # sid = "lydia"
+        # sovits_fp = "/root/GPT-SoVITS/SoVITS_weights_v2/xxx_e8_s168.pth"
+        # gpt_fp = "/root/GPT-SoVITS/GPT_weights_v2/xxx-e15.ckpt"
+        # M = GSVModel(sovits_model_fp=sovits_fp, gpt_model_fp=gpt_fp)
+        # ref_info = ReferenceInfo(
+        #     audio_fp="/root/autodl-fs/voice_sample/Lýdia_Machová/denoise_opt/Lýdia_Machová-1.wav_0000000000_0000138240.wav",
+        #     text="In fact, I love it so much that I like to learn a new language every two years.",
+        #     lang="EN")
+
+        if False: # download from qiniu
+            import utils_audio
+            sid = "ChatTTS_Voice_Clone_User_3125_20250307140742211_jwa0"
+
+            utils_audio.download_from_qiniu(R.get_ref_audio_osskey(sid), R.get_ref_audio_fp(sid))
+            R.get_ref_text_osskey(sid)
+            R.get_sovits_osskey(sid)
+            R.get_gpt_osskey(sid)
+            pass
+
+
         lang = "en"
-        sid = "lydia"
-        sovits_fp = "/root/GPT-SoVITS/SoVITS_weights_v2/xxx_e8_s168.pth"
+        sid = "amber"
+        sovits_fp = "/root/GPT-SoVITS/SoVITS_weights_v2/xxx_e12_s252.pth"
         gpt_fp = "/root/GPT-SoVITS/GPT_weights_v2/xxx-e15.ckpt"
+        ref_audio_fp = "/root/autodl-fs/voice_sample/amber/denoise_opt/amber_20.wav"
         M = GSVModel(sovits_model_fp=sovits_fp, gpt_model_fp=gpt_fp)
         ref_info = ReferenceInfo(
-            audio_fp="/root/autodl-fs/voice_sample/Lýdia_Machová/denoise_opt/Lýdia_Machová-1.wav_0000000000_0000138240.wav",
-            text="In fact, I love it so much that I like to learn a new language every two years.",
+            audio_fp=ref_audio_fp,
+            text="Are you okay? Go ask the boss later to get out some money to switch to 714.",
             lang="EN")
+
 
         if False:  # post2oss
             import utils_audio
@@ -780,3 +805,4 @@ if __name__ == '__main__':
         # )
         # audio_segment.export(opt_fp, format='m4a')
     webui_list_audios(opt_dir, text_list=lines, cmt_list=cmt_list)
+

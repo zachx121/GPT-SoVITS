@@ -242,7 +242,7 @@ def model_process(sid: str, event, q_inp):
             p = C.InferenceParam(info_dict)
             # 处理 InferenceParam 实例
             # 这里可以添加你的处理逻辑，例如：
-            print(f"Processing: {p}")
+            logger.info(f"Processing: {p}")
         except json.JSONDecodeError as e:
             logger.error(f"JSON 解析错误: {e}")
             logger.error(traceback.format_exc())  # 打印完整的堆栈跟踪
@@ -266,7 +266,7 @@ def model_process(sid: str, event, q_inp):
                 logger.info(f"""params as: 
                 target_text={p.text},
                 target_lang={p.tgt_lang},
-                ref_info={p.ref_info}, # ReferenceInfo(audio_fp={p.ref_info.audio_fp},text={p.ref_info.text},lang={p.ref_info.lang}) 
+                ref_info={p.ref_info},
                 ref_free={p.ref_free}, no_cut={p.nocut}
                 """)
                 wav_sr, wav_arr_int16 = M.predict(target_text=p.text,
