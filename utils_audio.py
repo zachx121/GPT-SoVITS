@@ -171,7 +171,7 @@ class NoiseCheck:
     @staticmethod
     def is_abnormal_pronounce(y, sr, debug=False):
         if y.shape[0] / sr <= 3.0:
-            logging.info("音频不足3.0秒，不进行峰度和能量的异常检测")
+            logging.info("    音频不足3.0秒，不进行峰度和能量的异常检测")
             return False
         if y.dtype not in (np.float16, np.float32):
             y = y.astype(np.float32) / 32768.0
