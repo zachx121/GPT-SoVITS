@@ -843,6 +843,13 @@ def workflow(inp_params):
         logger.info(f">>> At step_asr. saved at {ASR_DIR}")
         step_asr(DENOISED_DIR, ASR_DIR, sid, lang)
 
+        # wc -l /root/autodl-fs/voice_sample/ChatTTS_Voice_Clone_User_3102_20250308144356730_ce6c/asr/denoised.list
+        status, output = getstatusoutput(f"wc -l {ASR_RES_FP}")
+        assert status == 0, f"ASR文件读取失败, sid={output}"
+        sample_num = int(output.split(" ")[0])
+        if status != 0 or sample_num <= 9:
+            logging.error(f"样本数量异常(仅{sample_num}个), {ASR_RES_FP}")
+            sys.exit(502)
         # Duplicated
         # logger.info(">>> At Pretrain Application | open1a")
         # open1a(ASR_RES_FP, DENOISED_DIR, sid, bert_pretrained_dir=C.PRETRAIN_BERT_DIR)

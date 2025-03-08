@@ -630,6 +630,11 @@ def train_consumer():
                     connection, channel = connect_to_rabbitmq()
                     # 发送结果到队列
                     send_result_with_retry(channel, result)
+                elif return_code == 502:
+                    logger.error(f"样本数量异常 ({sid})")
+                    result = {"code": 502, "msg": "样本数量异常", "result": task.get('speaker', 'unknown')}
+                    # 发送结果到队列
+                    send_result_with_retry(channel, result)
                 else:
                     logger.error(f"Training script failed with error")
                     result = {"code": 1, "msg": "Model Training failed.", "result": task.get('speaker', 'unknown')}
