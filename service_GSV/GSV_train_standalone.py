@@ -494,6 +494,7 @@ def open_slice(inp, opt_root,
 
     for p in ps_slice:
         p.wait()
+        assert p.returncode == 0
     ps_slice = []
 
 

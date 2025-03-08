@@ -563,7 +563,7 @@ def log_stream(stream, logger, level=logging.INFO):
         if not line:
             break
         if line.strip():
-            logger.log(level, line.strip())
+            logger.log(level, line.strip().decode('utf-8'))
             
 def train_consumer():
     connection, channel = connect_to_rabbitmq()
@@ -608,6 +608,7 @@ def train_consumer():
                     text=True,
                     bufsize=1,  # 行缓冲
                     universal_newlines=True,
+                    encoding='utf-8'  # 指定编码
                 )
 
                 # 创建并启动日志线程
