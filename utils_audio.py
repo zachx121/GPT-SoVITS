@@ -137,13 +137,14 @@ def download_files_in_parallel(urls, target_dir, num_workers=4):
 
 
 def batch_check_samples():
-    from subprocess import Popen, getstatusoutput
+    import subprocess
     from glob import glob
     import logging
     for ASR_RES_FP in glob("/root/autodl-fs/voice_sample/*/asr/denoised.list"):
-        status, output = getstatusoutput(f"wc -l {ASR_RES_FP}")
-        assert status == 0
-        sample_num = int(output.split(" ")[0])
+        print(f"at: {ASR_RES_FP}")
+        res = subprocess.run(["wc", "-l", ASR_RES_FP], capture_output=True, text=True, encoding='utf-8')
+        assert res.returncode == 0
+        sample_num = int(res.stdout.strip().split(" ")[0])
         if sample_num <= 10:
             logging.error(f"样本数量异常(仅{sample_num}个), {ASR_RES_FP}")
             for i in glob(ASR_RES_FP.split("/asr/denoised.list")[0] + "/*.wav"):

@@ -20,6 +20,7 @@ import wave
 import librosa
 import signal
 from subprocess import Popen, getstatusoutput
+import subprocess
 
 torch.manual_seed(233333)
 tmp = os.path.join(now_dir, "TEMP")
@@ -844,10 +845,10 @@ def workflow(inp_params):
         step_asr(DENOISED_DIR, ASR_DIR, sid, lang)
 
         # wc -l /root/autodl-fs/voice_sample/ChatTTS_Voice_Clone_User_3102_20250308144356730_ce6c/asr/denoised.list
-        status, output = getstatusoutput(f"wc -l {ASR_RES_FP}")
-        assert status == 0, f"ASR文件读取失败, sid={output}"
-        sample_num = int(output.split(" ")[0])
-        if status != 0 or sample_num <= 9:
+        res = subprocess.run(["wc", "-l", ASR_RES_FP], capture_output=True, text=True, encoding='utf-8')
+        assert res.returncode == 0, f"cmd执行失败：wc -l {ASR_RES_FP}"
+        sample_num = int(res.stdout.strip().split(" ")[0])
+        if sample_num <= 9:
             logging.error(f"样本数量异常(仅{sample_num}个), {ASR_RES_FP}")
             sys.exit(502)
         # Duplicated
