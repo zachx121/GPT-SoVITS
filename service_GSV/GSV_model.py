@@ -14,6 +14,7 @@ import time
 from time import time as ttime
 import os
 import shutil
+import utils_audio
 import numpy as np
 import soundfile as sf
 import json
@@ -738,7 +739,6 @@ if __name__ == '__main__':
         #     lang="EN")
 
         if False: # download from qiniu
-            import utils_audio
             sid = "ChatTTS_Voice_Clone_User_3125_20250307140742211_jwa0"
 
             utils_audio.download_from_qiniu(R.get_ref_audio_osskey(sid), R.get_ref_audio_fp(sid))
@@ -761,7 +761,6 @@ if __name__ == '__main__':
 
 
         if False:  # post2oss
-            import utils_audio
             import subprocess
             url = utils_audio.post2qiniu(sovits_fp, R.get_sovits_osskey(sid))
             logging.info(f">>> url as: '{url}'")
