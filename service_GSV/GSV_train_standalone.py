@@ -898,7 +898,7 @@ if __name__ == '__main__':
     try:
         assert len(sys.argv) >= 4, "python -m service_GSV.GSV_train_standalone <sid> <lang> <data_urls(逗号拼接)>"
         sid = sys.argv[1]
-        lang = sys.argv[2]
+        lang = sys.argv[2]  # en_us/jp_jp/ko_kr/zh_cn/auto
         data_urls = sys.argv[3].split(",")
         params = {"speaker_id": sid,
                   "lang": lang,
