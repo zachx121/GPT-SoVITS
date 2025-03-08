@@ -155,7 +155,7 @@ def standalone_debug():
     p = InferenceParam({"trace_id": "dd", "speaker": sid, "text": "测试音频效果", "lang": "zh_cn"})
     p = InferenceParam({"trace_id": "dd", "speaker": sid, "text": "I don't understand your meanings", "lang": "en_us"})
 
-    wav_sr, wav_arr_int16 = M.predict(target_text=p.text,
+    wav_sr, wav_arr_int16, _ = M.predict(target_text=p.text,
                                       target_lang=p.tgt_lang,
                                       ref_info=p.ref_info,
                                       top_k=1, top_p=0, temperature=0,

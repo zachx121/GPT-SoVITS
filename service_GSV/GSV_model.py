@@ -98,7 +98,7 @@ class GSVModel:
 
         self.torch_dtype = torch.float16 if self.is_half else torch.float32
         self.ref_info, self.ref_wav_int16, self.ref_sr = None, None, None
-
+        self.tts_num = 0  # predict里有重试逻辑，记录一下重试了几次
 
     # api.py/change_sovits_weights
     def init_sovits(self):
@@ -322,6 +322,7 @@ class GSVModel:
                     top_k=20, top_p=1.0, temperature=0.99, speed=1,
                     ref_free=False, if_freeze=False,
                     inp_refs=None, cache=None):
+        self.tts_num += 1
         cache = {} if cache is None else cache
         inp_refs = [] if inp_refs is None else inp_refs  # 多个参考音频文件（建议同性），平均融合他们的音色
         t = []
@@ -534,16 +535,19 @@ class GSVModel:
 
     @staticmethod
     def audio_check(wav_arr, wav_sr, text, lang, **kwargs):
-        cond1 = GSVModel.is_pure_noise(wav_arr, **kwargs)
+        # cond1 = GSVModel.is_pure_noise(wav_arr, **kwargs)
         cond2, p, y = GSVModel.is_abnormal_duration(wav_arr, wav_sr, text, lang, **kwargs)
         cond3 = GSVModel.is_empty_noise(wav_arr, **kwargs)
-        if cond1:
-            logging.warning(f">>> 检测为 is_pure_noise")
+        cond4 = utils_audio.NoiseCheck.is_abnormal_pronounce(wav_arr, wav_sr)
+        # if cond1:
+        #     logging.warning(f">>> 检测为 is_pure_noise")
         if cond2:
             logging.warning(f">>> 检测为 is_abnormal_duration (预测时长={p} 实际时长={y} lang='{lang}' text='{text}' )")
         if cond3:
             logging.warning(f">>> 检测为 is_empty_noise")
-        return any([cond1, cond2, cond3])
+        if cond4:
+            logging.warning(f">>> 检测为 is_abnormal_pronounce")
+        return any([cond2, cond3, cond4])
 
     # 检测是否为参考音频泄露
     def is_ref_leakage(self, wav_arr, wav_sr, ref_info: ReferenceInfo):
@@ -581,6 +585,7 @@ class GSVModel:
                 ref_info: ReferenceInfo = None,
                 top_k=20, top_p=1.0, temperature=0.99, speed=1,
                 ref_free: bool = None, no_cut: bool = False, **kwargs):
+        self.tts_num = 0
         # Synthesize audio
         # target_lang是 en_us/zh_cn/jp_jp/kr_ko
         # tgt_lang是 en/all_zh/all_jp/all_ko
@@ -616,6 +621,14 @@ class GSVModel:
                                                 top_k=top_k, top_p=top_p, temperature=temperature, speed=speed,
                                                 ref_free=True, no_cut=no_cut, **kwargs)
             wav_sr, wav_arr_int16 = list(synthesis_result)[-1]
+            # 如果「泄露-->无参模式推理异常」这里重试一次
+            if self.audio_check(wav_arr_int16, wav_sr, target_text, target_lang):
+                synthesis_result = self.get_tts_wav(text=target_text, text_language=tgt_lang,
+                                                    ref_wav_path=ref_info.audio_fp,
+                                                    prompt_text=ref_info.text, prompt_language=ref_lang,
+                                                    top_k=top_k, top_p=top_p, temperature=temperature, speed=speed,
+                                                    ref_free=True, no_cut=no_cut, **kwargs)
+                wav_sr, wav_arr_int16 = list(synthesis_result)[-1]
             return wav_sr, wav_arr_int16
 
         cnt, max_cnt = 0, 1  # 如果合成的音频数组方差太小，意味着是空白音或者爆音，最多重试三次，正常方差示例:522218,849305
@@ -644,7 +657,7 @@ class GSVModel:
                                                     ref_free=True, no_cut=no_cut, **kwargs)
                 wav_sr, wav_arr_int16 = list(synthesis_result)[-1]
                 return wav_sr, wav_arr_int16
-        return wav_sr, wav_arr_int16
+        return wav_sr, wav_arr_int16, self.tts_num
 
 
 def webui_list_audios(directory, text_list=None, cmt_list=None, gr_share=False, port=6006):
@@ -782,11 +795,11 @@ if __name__ == '__main__':
     for idx, line in enumerate(lines):
         begin_t = time.time()
         logging.info(f">>> 开始合成({idx}/{len(lines)}): {line}")
-        sr, audio = M.predict(target_text=line,
-                              target_lang=lang,
-                              ref_info=ref_info,
-                              top_k=30, top_p=0.99, temperature=0.6,
-                              no_cut=True)
+        sr, audio, tts_num = M.predict(target_text=line,
+                                       target_lang=lang,
+                                       ref_info=ref_info,
+                                       top_k=30, top_p=0.99, temperature=0.6,
+                                       no_cut=True)
         end_t = time.time()
         audio_list.append(audio)
         opt_fp = f"audio{idx}_{len(line.split(' '))}token_{(end_t - begin_t) * 1000:.0f}ms.wav"
@@ -795,7 +808,7 @@ if __name__ == '__main__':
         opt_fp = os.path.join(opt_dir, opt_fp)
         sf.write(opt_fp, audio, sr)
         cmt_list.append(
-            f"单词数: {len(line.split(' '))} 合成耗时: {(end_t - begin_t) * 1000:.0f}ms 异常检测: leak={is_leak} abnormal={is_any_abnormal}")
+            f"单词数: {len(line.split(' '))} 合成耗时: {(end_t - begin_t) * 1000:.0f}ms 推理次数={tts_num}\n异常检测: leak={is_leak} abnormal={is_any_abnormal}")
         # from pydub import AudioSegment
         # audio_segment = AudioSegment(
         #     audio.tobytes(),

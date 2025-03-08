@@ -94,11 +94,11 @@ if __name__ == '__main__':
     x_list, y_list = [], []
     audios, sr = [], -1
     for text in tqdm(text_list):
-        wav_sr, wav_arr_int16 = M.predict(target_text=text,
-                                          target_lang=lang,
-                                          ref_info=ref_info,
-                                          top_k=30, top_p=0.99, temperature=0.3,
-                                          ref_free=False, no_cut=False)
+        wav_sr, wav_arr_int16, _ = M.predict(target_text=text,
+                                             target_lang=lang,
+                                             ref_info=ref_info,
+                                             top_k=30, top_p=0.99, temperature=0.3,
+                                             ref_free=False, no_cut=False)
         audios.append(wav_arr_int16)
         sr = wav_sr
         num_tokens = get_token_num(text, lang)

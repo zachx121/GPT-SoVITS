@@ -270,7 +270,7 @@ def model_process(sid: str, event, q_inp):
                 ref_info={p.ref_info},
                 ref_free={p.ref_free}, no_cut={p.nocut}
                 """)
-                wav_sr, wav_arr_int16 = M.predict(target_text=p.text,
+                wav_sr, wav_arr_int16, _ = M.predict(target_text=p.text,
                                                   target_lang=p.tgt_lang,
                                                   ref_info=p.ref_info,
                                                   top_k=30, top_p=0.99, temperature=0.4,
