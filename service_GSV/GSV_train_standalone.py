@@ -852,7 +852,7 @@ def workflow(inp_params):
         sample_num = int(res.stdout.strip().split(" ")[0])
         if sample_num <= 9:
             logging.error(f"样本数量异常(仅{sample_num}个), {ASR_RES_FP}")
-            sys.exit(502)
+            sys.exit(10)
         # Duplicated
         # logger.info(">>> At Pretrain Application | open1a")
         # open1a(ASR_RES_FP, DENOISED_DIR, sid, bert_pretrained_dir=C.PRETRAIN_BERT_DIR)
