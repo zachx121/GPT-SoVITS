@@ -280,7 +280,7 @@ def step_asr(denoised_dir, asr_dir, sid, lang="auto"):
     p_asr = None
     if (p_asr == None):
         # python tools/asr/fasterwhisper_asr.py -i ./voice_sample/ChatTTS_Voice_Clone_0_Mike_yvmz/denoised -o ./voice_sample/ChatTTS_Voice_Clone_0_Mike_yvmz/asr -s large -l en -p float32
-        cmd = f"""python 'tools/asr/{asr_py}' \
+        cmd = f"""{python_exec} 'tools/asr/{asr_py}' \
         --input_folder {denoised_dir} \
         --output_folder {asr_dir} \
         --model_size large-v3-local \
@@ -289,6 +289,7 @@ def step_asr(denoised_dir, asr_dir, sid, lang="auto"):
         logger.info(f"asr cmd: {cmd}")
         p_asr = Popen(cmd, shell=True)
         p_asr.wait()
+        assert p_asr.returncode == 0, "ASR Failed"
         p_asr = None
 
     fp = os.path.join(asr_dir, "denoised.list")
@@ -896,6 +897,7 @@ def workflow(inp_params):
 # python -m service_GSV.GSV_train_standalone test_cxm zh_cn 'model/clone/device/20250211/1000294265/6f50a0eb-2a46-4973-93d2-2dbe84d0f3a7.m4a'
 # python -m service_GSV.GSV_train_standalone user_0 zh_cn 'http://resource.aisounda.cn/tmp/92427149-498c-443e-9186-b50a465c2d9e.m4a?e=1740426999&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:nMwvHciW5lne6VErxDJH3vw-5xA='
 # python -m service_GSV.GSV_train_standalone ChatTTS_Voice_Clone_Common_KellyV2 en_us 'http://resource.aisounda.cn/model%2Fclone%2Fself%2F701c5a35-0e7f-4832-a805-72f3c93ea007.m4a?e=1740386407&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:MsdLRnmCo5YajmN8maURh3-yCkI='
+# python -m service_GSV.GSV_train_standalone abc_test_of_d733 zh_cn 'http://resource.aisounda.cn/tmp/bjcy8k8x51vb9dh.wav?e=1741438428&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:8ogpXCSlZtqrm0kEjI3iqju00bw='
 if __name__ == '__main__':
     try:
         assert len(sys.argv) >= 4, "python -m service_GSV.GSV_train_standalone <sid> <lang> <data_urls(逗号拼接)>"
