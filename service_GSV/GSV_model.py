@@ -682,7 +682,7 @@ class GSVModel:
                                                     top_k=top_k, top_p=top_p, temperature=temperature, speed=speed,
                                                     ref_free=True, no_cut=no_cut, **kwargs)
                 wav_sr, wav_arr_int16 = list(synthesis_result)[-1]
-            return wav_sr, wav_arr_int16
+            return wav_sr, wav_arr_int16, self.tts_num
 
         cnt, max_cnt = 0, 1  # 如果合成的音频数组方差太小，意味着是空白音或者爆音，最多重试三次，正常方差示例:522218,849305
         while self.audio_check(wav_arr_int16, wav_sr, target_text, target_lang) and cnt <= max_cnt:
@@ -709,7 +709,7 @@ class GSVModel:
                                                     top_k=top_k, top_p=top_p, temperature=temperature, speed=speed,
                                                     ref_free=True, no_cut=no_cut, **kwargs)
                 wav_sr, wav_arr_int16 = list(synthesis_result)[-1]
-                return wav_sr, wav_arr_int16
+                return wav_sr, wav_arr_int16, self.tts_num
         return wav_sr, wav_arr_int16, self.tts_num
 
 
@@ -753,7 +753,7 @@ def webui_list_audios(directory, text_list=None, cmt_list=None, gr_share=False, 
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_PhenixV2 en manual
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_OrionV2 en
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_OrionV2.1 en
-# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_MarthaV2 en
+# python -m service_GSV.GSV_model doctorwho en
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_ZoeV2 en
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_NinaV2 en
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_User_3125_20250307140742211_jwa0 en
