@@ -553,11 +553,14 @@ class GSVModel:
             logging.warning(f">>> 语言'{lang}' 对应的时长预估参数未就绪，借用中文的")
             a, b, c, d = (1.4589877459468358e-05, -0.003125013569752014, 0.2354471444393487, -1.7437911823924999)
         x = get_token_num(text, lang)
-        p = round(a * x ** 3 + b * x ** 2 + c * x + d, 4)
         y = round(wav_arr.shape[0] / wav_sr, 4)
+        p = round(a * x ** 3 + b * x ** 2 + c * x + d, 4)
         # 如果文本过长的话，跳过检测，拟合公式不准的
         if x >= 20:
             logging.warning(f">>> 检测到合成长文本(英文20个单词 中文20个字):{x} 跳过时长检测")
+            return False, 0, y
+        elif y <= 2.0:
+            logging.warning(f">>> 检测到合成音频时长不超过两秒，跳过时长检测")
             return False, 0, y
         else:
             # 如果实际时长与预估时长差距超过3s，认为是异常音频
