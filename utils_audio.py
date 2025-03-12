@@ -154,6 +154,31 @@ def batch_check_samples():
                 # Audio(i)
 
 
+def vis_phones_and_bert(phones, bert, norm_text):
+    if type(bert) != np.ndarray:
+        bert = bert.cpu().numpy()
+    print(f"norm_text2: '{norm_text}'")
+    print(f"token-num:{len(norm_text.split(' '))} char-num:{len(norm_text)} 音素数量:{len(phones)}, bert.shape:{bert.shape}")
+    fig,axs = plt.subplots(1,2, figsize=(9,3))
+    _ = axs[0].set_title(f"bert min~max of {bert.shape[1]} items")
+    arr = bert
+    _ = axs[0].fill_between(np.arange(arr.shape[1]),
+                         y1=np.min(arr, axis=0),
+                         y2=np.max(arr, axis=0),
+                         color='steelblue')
+    _ = axs[0].fill_between(np.arange(arr.shape[1]),
+                         y1=np.quantile(arr, q=0.05, axis=0),
+                         y2=np.quantile(arr, q=0.95, axis=0),
+                         color='red', alpha=0.3)
+    _ = axs[0].plot(np.arange(arr.shape[1]), np.quantile(arr, q=0.5, axis=0), color='red', label="q50")
+    _ = axs[0].plot(np.arange(arr.shape[1]), np.min(arr, axis=0), color='steelblue', label="min")
+    _ = axs[0].plot(np.arange(arr.shape[1]), np.max(arr, axis=0), color='steelblue', label="max")
+    _ = axs[1].set_title(f"phones_id of {len(phones)} items")
+    _ = axs[1].plot(np.arange(len(phones)), phones)
+    _ = axs[1].scatter(np.arange(len(phones)), phones)
+    plt.show()
+
+
 class NoiseCheck:
     @staticmethod
     def consecutive_true(arr, num=3):
