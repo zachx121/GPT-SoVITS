@@ -93,6 +93,9 @@ class GSVModel:
         logging.info(f">>> Initializing gpt ...")
         self.hz, self.max_sec, self.t2s_model, self.config = self.init_gpt()
         logging.info(f">>> Initializing cnhubert ...")
+        # CN-HuBERT 是一种基于 HuBERT（Hidden-Unit BERT）架构专门为中文语音处理设计的预训练模型
+        # 它在大量未标注的中文语音数据上进行预训练。在预训练过程中，模型学习到语音信号的丰富特征表示
+        # 在语音合成任务中，这些特征可以作为额外的信息输入到合成模型中，帮助模型更好地理解语音的语义、韵律等信息，从而生成更加自然、流畅的语音
         self.ssl_model = self.init_cnhubert_sslmodel()
         logging.info(f">>> Initializing bert ...")
         self.tokenizer, self.bert_model = self.init_bert()
@@ -322,7 +325,8 @@ class GSVModel:
                     no_cut=False,
                     top_k=20, top_p=1.0, temperature=0.99, speed=1,
                     ref_free=False, if_freeze=False,
-                    inp_refs=None, cache=None):
+                    inp_refs=None, cache=None,
+                    debug=False):
         self.tts_num += 1
         cache = {} if cache is None else cache
         inp_refs = [] if inp_refs is None else inp_refs  # 多个参考音频文件（建议同性），平均融合他们的音色
@@ -344,7 +348,7 @@ class GSVModel:
 
         logging.debug(f"实际输入的目标文本: {text}")
         zero_wav = np.zeros(
-            int(hps.data.sampling_rate * 0.3),
+            int(hps.data.sampling_rate * 0.3),  # 创建一个0.3秒的全零数组
             dtype=np.float16 if self.is_half == True else np.float32,
         )
         if not ref_free:
@@ -360,7 +364,7 @@ class GSVModel:
                 else:
                     wav16k = wav16k.to(DEVICE)
                     zero_wav_torch = zero_wav_torch.to(DEVICE)
-                wav16k = torch.cat([wav16k, zero_wav_torch])
+                wav16k = torch.cat([wav16k, zero_wav_torch])  # 参考音频推理之后，再上一个0.3秒的零音频
                 ssl_content = self.ssl_model.model(wav16k.unsqueeze(0))[
                     "last_hidden_state"
                 ].transpose(
@@ -368,7 +372,7 @@ class GSVModel:
                 )  # .float()
                 codes = vq_model.extract_latent(ssl_content)
                 prompt_semantic = codes[0, 0]
-                prompt = prompt_semantic.unsqueeze(0).to(DEVICE)
+                prompt = prompt_semantic.unsqueeze(0).to(DEVICE)  # shape: (1, 115) int64 CNHubert的向量
 
         t1 = ttime()
         t.append(t1 - t0)
@@ -382,6 +386,9 @@ class GSVModel:
         texts = merge_short_text_in_array(texts, 5)
         audio_opt = []
         if not ref_free:
+            # phones1: 具体的音素序列，输入的文本会先被转换为音素序列，然后模型根据这个音素序列来生成对应的语音
+            # bert1: shape: (1024, 4)
+            # norm_text1: ''
             phones1, bert1, norm_text1 = self.get_phones_and_bert(prompt_text, prompt_language, version)
 
         for i_text, text in enumerate(texts):
@@ -393,6 +400,7 @@ class GSVModel:
             phones2, bert2, norm_text2 = self.get_phones_and_bert(text, text_language, version)
             logging.debug(f"前端处理后的文本(每句): {norm_text2}")
             if not ref_free:
+                # 把prompt的M个音素和text的N个音素拼接到一起
                 bert = torch.cat([bert1, bert2], 1)
                 all_phoneme_ids = torch.LongTensor(phones1 + phones2).to(DEVICE).unsqueeze(0)
             else:
@@ -433,6 +441,35 @@ class GSVModel:
             if (len(refers) == 0): refers = [self.get_spepc(hps, ref_wav_path).to(self.torch_dtype).to(DEVICE)]
             audio = (vq_model.decode(pred_semantic, torch.LongTensor(phones2).to(DEVICE).unsqueeze(0), refers,
                                      speed=speed).detach().cpu().numpy()[0, 0])
+
+            if debug:
+                from utils_audio import vis_phones_and_bert
+                from matplotlib import pyplot as plt
+                if not ref_free:
+                    print(">>> 参考文本的phones&bert")
+                    vis_phones_and_bert(phones1, bert1, norm_text1)
+                print(">>> 推理文本的phones&bert")
+                vis_phones_and_bert(phones2, bert2, norm_text2)
+                print(">>> refers[0]结果(参考音频文件的get_spepc结果)")
+                fig,axs = plt.subplots(1,2, figsize=(9,3))
+                arr = refers[0].squeeze().cpu().numpy()
+                _ = axs[0].set_title(f"refer of {arr.shape[0]} items")
+                _ = axs[0].fill_between(np.arange(arr.shape[1]),
+                                     y1=np.min(arr, axis=0),
+                                     y2=np.max(arr, axis=0),
+                                     color='steelblue')
+                _ = axs[0].fill_between(np.arange(arr.shape[1]),
+                                     y1=np.quantile(arr, q=0.05, axis=0),
+                                     y2=np.quantile(arr, q=0.95, axis=0),
+                                     color='red', alpha=0.3)
+                _ = axs[0].plot(np.arange(arr.shape[1]), np.quantile(arr, q=0.5, axis=0), color='red', label="q50")
+                print(">>> pred_semantic结果")
+                arr = pred_semantic.squeeze().cpu().numpy()
+                _ = axs[1].set_title(f"pred_semantic of {arr.shape[0]} items")
+                _ = axs[1].scatter(np.arange(arr.shape[0]), arr)
+                _ = axs[1].plot(np.arange(arr.shape[0]), arr)
+                plt.show()
+
             max_audio = np.abs(audio).max()  # 简单防止16bit爆音
             if max_audio > 1: audio /= max_audio
             audio_opt.append(audio)
@@ -580,6 +617,21 @@ class GSVModel:
 
         # ref_wav_d = self.ref_wav_int16.shape[0] / self.ref_sr
         return wav_arr.shape[0] == self.ref_wav_int16.shape[0]
+
+    def predict_raw(self, target_text, target_lang,
+                    ref_info: ReferenceInfo = None,
+                    top_k=20, top_p=1.0, temperature=0.99, speed=1,
+                    ref_free: bool = None, no_cut: bool = False, **kwargs):
+        tgt_lang = target_lang if target_lang in C.LANG_MAP.values() else C.LANG_MAP[target_lang]
+        ref_lang = ref_info.lang if ref_info.lang in C.LANG_MAP.values() else C.LANG_MAP[ref_info.lang]
+        synthesis_result = self.get_tts_wav(text=target_text, text_language=tgt_lang,
+                                            ref_wav_path=ref_info.audio_fp,
+                                            prompt_text=ref_info.text, prompt_language=ref_lang,
+                                            top_k=top_k, top_p=top_p, temperature=temperature, speed=speed,
+                                            ref_free=ref_free, no_cut=no_cut, **kwargs)
+
+        wav_sr, wav_arr_int16 = list(synthesis_result)[-1]
+        return wav_sr, wav_arr_int16
 
     # no_cut置为True时注意不要开头就打句号
     def predict(self, target_text, target_lang,
