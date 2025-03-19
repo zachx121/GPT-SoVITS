@@ -43,7 +43,7 @@ import shutil
 from urllib.parse import unquote
 from subprocess import getstatusoutput, check_output
 from flask import Flask, request
-
+import signal
 from .GSV_model import GSVModel, ReferenceInfo
 from . import GSV_const as C
 from .GSV_const import Route as R
@@ -57,6 +57,9 @@ import schedule
 import threading
 import atexit
 import pyloudnorm as pyln
+
+# 关闭pika的INFO及以下的日志
+logging.getLogger('pika').setLevel(logging.WARNING)
 
 app = Flask(__name__, static_folder="./static_folder", static_url_path="")
 
@@ -149,7 +152,30 @@ def adjust_loudness(audio_arr, target_lufs=-23.0):
     return adjusted_audio
 
 
-def model_process(sid: str, event, q_inp):
+def model_process(sid: str, event):
+    M = None
+    connection = None
+    channel = None
+
+    def signal_handler(sig, frame):
+        # 关闭通道和连接
+        if channel is not None:
+            channel.stop_consuming()
+            channel.close()
+        if connection is not None:
+            connection.close()
+        logger.info(f"Close process of sid={sid}: Channel and connection closed.")
+        if M is not None:
+            del M
+            import gc
+            gc.collect()
+            torch.cuda.empty_cache()
+        logger.info(f"Close process of sid={sid}: Model deleted.")
+        sys.exit(0)
+
+    # 注册信号处理器 处理外部主进程触发的 p.terminate()
+    signal.signal(signal.SIGTERM, signal_handler)
+
     global logger
     logger=config_log()
     # 获取机器的 hostname
@@ -223,13 +249,13 @@ def model_process(sid: str, event, q_inp):
                   top_k=30, top_p=0.99, temperature=0.4,
                   ref_free=p.ref_free, no_cut=p.nocut)
     # 发送load成功事件
-    logger.info("发送load成功事件到mq")
+    logger.debug("发送load成功事件到mq")
     load_result_event = {
         "uniqueVoiceName": sid,  # 唯一语音名称
         "loadStatus": True
     }
     channel.basic_publish(exchange=exchange_service_load_model_result, routing_key='', body=json.dumps(load_result_event),  properties=PROPERTIES)
-    logger.info("event设置为set")
+    logger.debug("event设置为set")
     event.set()
 
     def call_back_func(ch, method, properties, body):
@@ -315,15 +341,19 @@ def model_process(sid: str, event, q_inp):
                 channel.basic_publish(exchange='', routing_key=p.result_queue_name, body=rsp, properties=PROPERTIES)
 
     channel.basic_consume(queue=request_queue_name, auto_ack=True, on_message_callback=call_back_func)
-    channel.start_consuming()
-
-    # 清理资源
-    channel.close()
-    connection.close()
-    del M
-    import gc
-    gc.collect()
-    torch.cuda.empty_cache()
+    try:
+        channel.start_consuming()
+    except Exception as e:
+        logger.error(f"Error during consuming in model_process. sid={sid}, error: {e}")
+    finally:
+        # 关闭通道和连接
+        logger.warning(f"close channel/connection and del M in try-catch...")
+        channel.close()
+        connection.close()
+        del M
+        import gc
+        gc.collect()
+        torch.cuda.empty_cache()
 
 
 # 返回所有GPU的内存空余量，是一个list
@@ -358,7 +388,7 @@ def load_model():
     # 假设一个模型占用2.8GB显存
     if get_free_gpu_mem()[0] <= 2800 * (sid_num + 1):
         res['code'] = 1
-        res['msg'] = 'GPU OOM'
+        res['msg'] = f'GPU OOM. only ~{get_free_gpu_mem()[0]/1000}G left, and estimation of mem is 2.8G per model'
         return json.dumps(res)
 
 
@@ -369,7 +399,7 @@ def load_model():
     _load_events = []
     for _ in range(sid_num):
         event = mp.Event()
-        p = mp.Process(target=model_process, args=(sid,event,q_inp))  # 移除 q_out
+        p = mp.Process(target=model_process, args=(sid, event))  # 移除q_out q_inp
 
         process_list.append(p)
         _load_events.append(event)
@@ -394,11 +424,12 @@ def unload_model():
                "result": ""}
         return res
 
-    # 有N个子进程，所以给队列放入N个None确保每个子进程全都能收到结束信号
-    for _ in range(len(M_dict[sid]["process_list"])):
-        M_dict[sid]['q_inp'].put("STOP")
+    # # 有N个子进程，所以给队列放入N个None确保每个子进程全都能收到结束信号
+    # for _ in range(len(M_dict[sid]["process_list"])):
+    #     M_dict[sid]['q_inp'].put("STOP")
     for p in M_dict[sid]["process_list"]:
-        p.join()
+        p.terminate()
+        p.join(timeout=5)
     # 清理掉字典里记录的kv
     del M_dict[sid]
     res = {"code": 0,
@@ -785,16 +816,6 @@ def schedule_tasks():
         time.sleep(1)
 
 
-def cleanup():
-    print("Cleaning up resources before exiting...")
-    # 给队列发送结束信号
-    for k, v in M_dict.items():
-        p_list = v['process_list']
-        for _ in range(len(p_list)):
-            v['q_inp'].put("STOP")
-        for p in p_list:
-            p.join()
-
 # python -m service_GSV.GSV_server  # 由于用到了相对路径的import，必须以module形式执行
 if __name__ == '__main__':
     logger=config_log()
@@ -804,19 +825,6 @@ if __name__ == '__main__':
     os.makedirs("gpt_dir", exist_ok=True)
     os.makedirs("sovits_dir", exist_ok=True)
     M_dict = {}
-    # M_dict = {
-    #     # 示例数据
-    #     "model1": {
-    #         "load_events": [mp.Event() for _ in range(5)],
-    #         "process_list": [],
-    #         "q_inp": mp.Queue()
-    #     },
-    #     "model2": {
-    #         "load_events": [mp.Event() for _ in range(3)],
-    #         "process_list": [],
-    #         "q_inp": mp.Queue()
-    #     }
-    # }
 
     # 检查参数数量
     if len(sys.argv) != 3:
