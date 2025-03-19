@@ -22,6 +22,7 @@ import librosa
 import torch
 import traceback
 import LangSegment
+from matplotlib import pyplot as plt
 import gradio as gr
 from subprocess import getstatusoutput
 from . import GSV_const as C
@@ -717,7 +718,7 @@ class GSVModel:
 
 
 # public share gradio is super laggy
-def webui_list_audios(directory, gr_share=False, port=6006):
+def webui_list_audios(directory, gr_share=False, port=8002):
     # 检查目录是否存在
     assert os.path.exists(directory), f"指定的目录 {directory} 不存在。"
 
@@ -745,9 +746,29 @@ def webui_list_audios(directory, gr_share=False, port=6006):
                     with gr.Row():
                         if cmt_list is not None:
                             gr.Markdown(cmt_list[idx])
-                    with gr.Column():
-                        gr.Audio(value=fp, type="filepath", label=f"Waveform: {os.path.basename(fp)}",
-                                 visualization='waveform')
+                with gr.Column():
+                    # todo visualize the wave of fp
+                    def plot_waveform(audio_path):
+                        # 读取音频文件
+                        y, sr = librosa.load(audio_path, sr=None)
+                        # 创建图形
+                        fig, ax = plt.subplots(figsize=(8, 3))
+                        # 计算时间轴
+                        time = np.arange(0, len(y)) / sr
+                        # 绘制波形图
+                        ax.plot(time, y, color='#1f77b4')
+                        # 设置标签和标题
+                        ax.set_xlabel('Time (s)')
+                        ax.set_ylabel('Amplitude')
+                        ax.set_title(f'Waveform: {os.path.basename(audio_path)}')
+                        # 设置网格
+                        ax.grid(True, alpha=0.3)
+                        # 紧凑布局
+                        fig.tight_layout()
+                        return fig
+
+                    # 使用gr.Plot显示matplotlib图形
+                    gr.Plot(value=plot_waveform(fp))
         # gr.render()
 
     if gr_share:
@@ -768,7 +789,9 @@ def webui_list_audios(directory, gr_share=False, port=6006):
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_ZoeV2 en
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_NinaV2 en
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_User_3125_20250307140742211_jwa0 en
-# python -m service_GSV.GSV_model doctorwho en
+# python -m service_GSV.GSV_model doctorwho en peace # 用suffix=peace的参考音频进行推理
+# python -m service_GSV.GSV_model doctorwho en  # 推理
+# python -m service_GSV.GSV_model doctorwho  # 仅播放已经保存的测试音频文件
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_User_3866_20250319223416792_99ng en
 if __name__ == '__main__':
     local_test_dir = "audio_test"
@@ -784,6 +807,12 @@ if __name__ == '__main__':
         ref_info = ReferenceInfo.from_sid(sid, suffix=ref)
 
         # sf.write(os.path.join(opt_dir, "res_audio.wav"), np.hstack(audio_list), sr)
+    elif len(sys.argv) == 2:
+        os.environ["TOKENIZERS_PARALLELISM"] = "false"
+        sid = sys.argv[1]
+        opt_dir = os.path.join(local_test_dir, sid)
+        webui_list_audios(opt_dir)
+        sys.exit(0)
     else:
         # opt_dir = os.path.join(local_test_dir, "cxm_from_webui")
         # os.makedirs(opt_dir, exist_ok=True)
