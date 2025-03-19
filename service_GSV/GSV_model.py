@@ -721,9 +721,9 @@ def webui_list_audios(directory, gr_share=False, port=6006):
     # 检查目录是否存在
     assert os.path.exists(directory), f"指定的目录 {directory} 不存在。"
 
-    with open(os.path.join(opt_dir, "text_list.txt"), "r") as fr:
+    with open(os.path.join(opt_dir, "text_list.txt"), "r", encoding='utf-8') as fr:
         text_list = [i.strip() for i in fr.readlines()]
-    with open(os.path.join(opt_dir, "cmt_list.txt"), "r") as fr:
+    with open(os.path.join(opt_dir, "cmt_list.txt"), "r", encoding='utf-8') as fr:
         cmt_list = [i.strip() for i in fr.readlines()]
 
     # 获取目录下所有的音频文件（假设支持 .wav、.mp3 格式，可按需添加其他格式）
@@ -765,10 +765,11 @@ def webui_list_audios(directory, gr_share=False, port=6006):
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_PhenixV2 en manual
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_OrionV2 en
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_OrionV2.1 en
-# python -m service_GSV.GSV_model doctorwho en
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_ZoeV2 en
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_NinaV2 en
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_User_3125_20250307140742211_jwa0 en
+# python -m service_GSV.GSV_model doctorwho en
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_User_3866_20250319223416792_99ng en
 if __name__ == '__main__':
     local_test_dir = "audio_test"
     if len(sys.argv) >= 3:
@@ -880,9 +881,9 @@ if __name__ == '__main__':
         #     channels=1
         # )
         # audio_segment.export(opt_fp, format='m4a')
-    with open(os.path.join(opt_dir, "text_list.txt"), "w") as fw:
+    with open(os.path.join(opt_dir, "text_list.txt"), "w", encoding='utf-8') as fw:
         fw.writelines([i + "\n" for i in lines])
-    with open(os.path.join(opt_dir, "cmt_list.txt"), "w") as fw:
+    with open(os.path.join(opt_dir, "cmt_list.txt"), "w", encoding='utf-8') as fw:
         fw.writelines([i + "\n" for i in cmt_list])
 
     webui_list_audios(opt_dir)
