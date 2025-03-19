@@ -115,7 +115,7 @@ def train_consumer():
         except Exception as e:
             logger.error(f"Error during training script execution: {e}", exc_info=True)
 
-    cnt, hold = 0, 10
+    cnt, hold = 0, 50
     while cnt <= hold:
         try:
             try:
