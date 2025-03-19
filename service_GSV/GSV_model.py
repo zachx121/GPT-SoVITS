@@ -716,9 +716,15 @@ class GSVModel:
         return wav_sr, wav_arr_int16, self.tts_num
 
 
-def webui_list_audios(directory, text_list=None, cmt_list=None, gr_share=False, port=6006):
+# public share gradio is super laggy
+def webui_list_audios(directory, gr_share=False, port=6006):
     # 检查目录是否存在
     assert os.path.exists(directory), f"指定的目录 {directory} 不存在。"
+
+    with open(os.path.join(opt_dir, "text_list.txt"), "r") as fr:
+        text_list = [i.strip() for i in fr.readlines()]
+    with open(os.path.join(opt_dir, "cmt_list.txt"), "r") as fr:
+        cmt_list = [i.strip() for i in fr.readlines()]
 
     # 获取目录下所有的音频文件（假设支持 .wav、.mp3 格式，可按需添加其他格式）
     audio_extensions = ('.wav', '.mp3', 'm4a')
@@ -728,7 +734,7 @@ def webui_list_audios(directory, text_list=None, cmt_list=None, gr_share=False, 
 
     with gr.Blocks() as demo:
         gr.Markdown("### 音频文件试听")
-        for idx,fp in enumerate(audio_files):
+        for idx, fp in enumerate(audio_files):
             with gr.Row():
                 with gr.Column():
                     gr.Audio(value=fp, type="filepath", label=os.path.basename(fp))
@@ -739,6 +745,9 @@ def webui_list_audios(directory, text_list=None, cmt_list=None, gr_share=False, 
                     with gr.Row():
                         if cmt_list is not None:
                             gr.Markdown(cmt_list[idx])
+                    with gr.Column():
+                        gr.Audio(value=fp, type="filepath", label=f"Waveform: {os.path.basename(fp)}",
+                                 visualization='waveform')
         # gr.render()
 
     if gr_share:
@@ -871,5 +880,10 @@ if __name__ == '__main__':
         #     channels=1
         # )
         # audio_segment.export(opt_fp, format='m4a')
-    webui_list_audios(opt_dir, text_list=lines, cmt_list=cmt_list)
+    with open(os.path.join(opt_dir, "text_list.txt"), "w") as fw:
+        fw.writelines([i + "\n" for i in lines])
+    with open(os.path.join(opt_dir, "cmt_list.txt"), "w") as fw:
+        fw.writelines([i + "\n" for i in cmt_list])
+
+    webui_list_audios(opt_dir)
 
