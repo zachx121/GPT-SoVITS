@@ -1,6 +1,7 @@
 import logging
 from logging.handlers import TimedRotatingFileHandler
 
+import functools
 import os
 import shutil
 import sys
@@ -51,92 +52,90 @@ def log_stream(stream, logger, level=logging.INFO):
 def train_consumer():
     connection, channel = connect_to_rabbitmq()
 
-    while True:
+    def call_back_func(ch, method, properties, body):
+        # 解析任务消息
+        task = json.loads(body)
+        # logger.info(f"Received training task: {task}")
+
+        # 执行训练逻辑
+        # train_model(task)
+
+        # 1.0.10.3 更新v2模型，方法改成直接用python命令调用脚本，如果脚本没有异常则发送训练成功消息，如果有异常则发送训练失败消息
+        # 执行训练逻辑
+        sid = task['speaker']
+        LANG = task['lang']
+        data_urls = task['data_urls']
+        # 只取 data_urls 的第一个元素
+        first_data_url = str(data_urls[0])  # 确保是字符串类型
+        try:
+            # 调用训练脚本
+            logger.info(f">>> speaker='{sid}', Language='{LANG}'")
+            logger.info(f">>> data_urls: {first_data_url}")
+            # 启动子进程（添加 -u 参数禁用缓冲）
+            proc = subprocess.Popen(
+                [sys.executable, "-u", "-m", "service_GSV.GSV_train_standalone", sid, LANG, first_data_url],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,  # 行缓冲
+                universal_newlines=True,
+                encoding='utf-8'  # 指定编码
+            )
+
+            # 创建并启动日志线程
+            stdout_thread = Thread(target=log_stream, args=(proc.stdout, logger, logging.INFO))
+            stderr_thread = Thread(target=log_stream, args=(proc.stderr, logger, logging.ERROR))
+            stdout_thread.start()
+            stderr_thread.start()
+
+            # 等待进程结束
+            return_code = proc.wait()
+
+            # 等待日志线程结束
+            stdout_thread.join()
+            stderr_thread.join()
+
+            if return_code == 0:
+                logger.info("Training script executed successfully")
+                result = {"code": 0, "msg": "Model Training finish.", "result": sid}
+                # 直接重新建立连接，因为tran耗时比较久，这时候断开了
+                connection, channel = connect_to_rabbitmq()
+                # 发送结果到队列
+                send_result_with_retry(channel, result)
+            elif return_code == 10:
+                logger.error(f"样本数量异常 ({sid})")
+                result = {"code": 502, "msg": "样本数量异常", "result": task.get('speaker', 'unknown')}
+                # 发送结果到队列
+                send_result_with_retry(ch, result)
+            else:
+                logger.error(f"Training script failed with error")
+                result = {"code": 1, "msg": "Model Training failed.", "result": task.get('speaker', 'unknown')}
+                # 发送结果到队列
+                send_result_with_retry(ch, result)
+        except Exception as e:
+            logger.error(f"Error during training script execution: {e}", exc_info=True)
+
+    cnt, hold = 0, 10
+    while cnt <= hold:
         try:
             try:
                 if channel is None or channel.is_closed:
                     connection, channel = connect_to_rabbitmq()
             except Exception:
                 # 如果 抛出异常，直接重连
-                logger.info(f"mq connect error,reconnect")
+                cnt += 1
+                logger.error(f"Connection to RabbitMQ lost, attempting to reconnect ({cnt}/{hold})...")
                 connection, channel = connect_to_rabbitmq()
-    
-            method_frame, header_frame, body = channel.basic_get(queue=queue_tran_request, auto_ack=True)
-            if body is None:
-                time.sleep(0.1)  # 如果没有消息，休眠一段时间
-                continue  # 如果没有消息，等待下一次
-            # 解析任务消息
-            task = json.loads(body)
-            #logger.info(f"Received training task: {task}")
-
-            # 执行训练逻辑
-            #train_model(task)
-            
-            #1.0.10.3 更新v2模型，方法改成直接用python命令调用脚本，如果脚本没有异常则发送训练成功消息，如果有异常则发送训练失败消息
-            # 执行训练逻辑
-            sid = task['speaker']
-            LANG = task['lang']
-            data_urls = task['data_urls']
-            # 只取 data_urls 的第一个元素
-            first_data_url = str(data_urls[0])  # 确保是字符串类型
-            try:
-                # 调用训练脚本
-                logger.info(f">>> speaker='{sid}', Language='{LANG}'")
-                logger.info(f">>> data_urls: {first_data_url}")
-               # 启动子进程（添加 -u 参数禁用缓冲）
-                proc = subprocess.Popen(
-                    [sys.executable, "-u", "-m", "service_GSV.GSV_train_standalone", sid, LANG, first_data_url],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    bufsize=1,  # 行缓冲
-                    universal_newlines=True,
-                    encoding='utf-8'  # 指定编码
-                )
-
-                # 创建并启动日志线程
-                stdout_thread = Thread(target=log_stream, args=(proc.stdout, logger, logging.INFO))
-                stderr_thread = Thread(target=log_stream, args=(proc.stderr, logger, logging.ERROR))
-                stdout_thread.start()
-                stderr_thread.start()
-
-                # 等待进程结束
-                return_code = proc.wait()
-
-                # 等待日志线程结束
-                stdout_thread.join()
-                stderr_thread.join()
-
-                if  return_code == 0:
-                    logger.info("Training script executed successfully")
-                    result= {"code": 0, "msg": "Model Training finish.", "result": sid}
-                    # 直接重新建立连接，因为tran耗时比较久，这时候断开了
-                    connection, channel = connect_to_rabbitmq()
-                    # 发送结果到队列
-                    send_result_with_retry(channel, result)
-                elif return_code == 10:
-                    logger.error(f"样本数量异常 ({sid})")
-                    result = {"code": 502, "msg": "样本数量异常", "result": task.get('speaker', 'unknown')}
-                    # 发送结果到队列
-                    send_result_with_retry(channel, result)
-                else:
-                    logger.error(f"Training script failed with error")
-                    result = {"code": 1, "msg": "Model Training failed.", "result": task.get('speaker', 'unknown')}
-                    # 发送结果到队列
-                    send_result_with_retry(channel, result)
-            except Exception as e:
-                logger.error(f"Error during training script execution: {e}", exc_info=True)            
-
-
+            channel.basic_consume(queue=queue_tran_request, auto_ack=True, on_message_callback=call_back_func)
+            channel.start_consuming()
         except pika.exceptions.AMQPConnectionError:
-            logger.error("Connection to RabbitMQ lost, attempting to reconnect...")
+            cnt += 1
+            logger.error(f"Connection to RabbitMQ lost, attempting to reconnect ({cnt}/{hold})...")
             connection, channel = connect_to_rabbitmq()
         except Exception as e:
             logger.error(f"Error in task: {e}", exc_info=True)
-            result = {"code": 1, "msg": "Model Training failed.", "result": task.get('speaker', 'unknown')}
-            # 发送结果到队列
-            send_result_with_retry(channel, result)
-    
+            sys.exit(1)
+
 
 def send_result_with_retry(channel, result):
     for attempt in range(5):
