@@ -41,3 +41,7 @@ schedule==1.2.2
 huggingface-hub==0.29.0
 funasr==1.2.4
 modelscope==1.23.0
+yamlargparse==1.31.1
+pesq
+torchinfo
+einops

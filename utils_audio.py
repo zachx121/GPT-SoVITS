@@ -328,12 +328,12 @@ class QiniuConst:
     bucket_public_name = 'sounda-public'
 
 
-def post2qiniu(localfile, key):
+def post2qiniu(localfile, key, bkt=QiniuConst.bucket_name):
     os.path.exists(localfile)
 
     # >>> 上传
     q = Auth(QiniuConst.access_key, QiniuConst.secret_key)
-    token = q.upload_token(QiniuConst.bucket_name, key, 3600)  # 生成上传Token，可以指定token的过期时间等
+    token = q.upload_token(bkt, key, 3600)  # 生成上传Token，可以指定token的过期时间等
     ret, info = put_file(token, key, localfile, version='v2')
     # print(info)
     assert ret['key'] == key

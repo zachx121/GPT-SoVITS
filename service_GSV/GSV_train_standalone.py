@@ -334,6 +334,19 @@ def step_asr(denoised_dir, asr_dir, sid, lang="auto"):
     log_audio_statistics(asr_dir)
 
 
+def open_denoise_clearvoice(inp_dir, opt_dir):
+    # inp_dir = "/root/autodl-fs/voice_sample/lydia/slicer_opt"
+    # opt_dir = "/root/autodl-fs/voice_sample/lydia/denoise_opt_dev2"
+    command = f'cd /root/autodl-fs/GSV/ClearVoice/ClearerVoice-Studio/clearvoice && python denoise_clearvoice.py {inp_dir} {opt_dir}'
+    try:
+        result = subprocess.run(command, shell=True, check=True, text=True, capture_output=True)
+        logger.info("命令执行成功，输出如下：")
+        logger.info(result.stdout)
+    except subprocess.CalledProcessError as e:
+        logger.error(f"命令执行失败，错误信息如下：")
+        logger.error(e.stderr)
+
+
 def open_denoise(denoise_inp_dir, denoise_opt_dir):
     global p_denoise
     denoise_inp_dir = my_utils.clean_path(denoise_inp_dir)
@@ -827,22 +840,31 @@ def workflow(inp_params):
     GPT_weight_root = os.path.join(C.GPT_DIR, sid)
 
     if True:  # skip
-        if os.path.exists(inp_dir):
-            shutil.rmtree(inp_dir)
-        os.makedirs(inp_dir, exist_ok=True)
+        # Data Process
+        if all(i.startswith("http") for i in data_urls):
+            logger.info(f">>> 重新下载训练样本，所有本地数据均删除")
+            if os.path.exists(inp_dir):
+                shutil.rmtree(inp_dir)
+            os.makedirs(inp_dir, exist_ok=True)
+            logger.info(f">>> Start Data Preparing. saved at {inp_dir}")
+            utils_audio.download_files_in_parallel(data_urls, inp_dir)
+        elif data_urls[0] == "local":
+            logger.info(f">>> 本地模式，不需要从url下载训练样本，仅删除slice/denoise/asr等目录")
+            for i in [SLICE_DIR, DENOISED_DIR, ASR_DIR, SoVITS_weight_root, GPT_weight_root]:
+                os.makedirs(i, exist_ok=True)
+        else:
+            raise Exception(f"data_urls 既不是连接也不是本地目录. data_urls:'{data_urls}'")
 
         for i in [SLICE_DIR, DENOISED_DIR, ASR_DIR, SoVITS_weight_root, GPT_weight_root]:
             os.makedirs(i, exist_ok=True)
 
-        # Data Process
-        logger.info(f">>> Start Data Preparing. saved at {inp_dir}")
-        utils_audio.download_files_in_parallel(data_urls, inp_dir)
         logger.info(">>> At step_convert2wav")
         step_convert2wav(inp_dir)
         logger.info(f">>> At step_slice. saved at {SLICE_DIR}")
         open_slice(inp_dir, SLICE_DIR, min_interval=80 if lang.lower() in ["en_us"] else 300)
         logger.info(f">>> At step_denoise. saved at {DENOISED_DIR}")
-        open_denoise(SLICE_DIR, DENOISED_DIR)
+        # open_denoise(SLICE_DIR, DENOISED_DIR)
+        open_denoise_clearvoice(SLICE_DIR, DENOISED_DIR)
         logger.info(f">>> At step_asr. saved at {ASR_DIR}")
         step_asr(DENOISED_DIR, ASR_DIR, sid, lang)
 
@@ -898,6 +920,7 @@ def workflow(inp_params):
 # python -m service_GSV.GSV_train_standalone user_0 zh_cn 'http://resource.aisounda.cn/tmp/92427149-498c-443e-9186-b50a465c2d9e.m4a?e=1740426999&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:nMwvHciW5lne6VErxDJH3vw-5xA='
 # python -m service_GSV.GSV_train_standalone ChatTTS_Voice_Clone_Common_KellyV2 en_us 'http://resource.aisounda.cn/model%2Fclone%2Fself%2F701c5a35-0e7f-4832-a805-72f3c93ea007.m4a?e=1740386407&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:MsdLRnmCo5YajmN8maURh3-yCkI='
 # python -m service_GSV.GSV_train_standalone abc_test_of_d733 zh_cn 'http://resource.aisounda.cn/tmp/bjcy8k8x51vb9dh.wav?e=1741438428&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:8ogpXCSlZtqrm0kEjI3iqju00bw='
+# python -m service_GSV.GSV_train_standalone user_0 zh_cn 'local'
 if __name__ == '__main__':
     try:
         assert len(sys.argv) >= 4, "python -m service_GSV.GSV_train_standalone <sid> <lang> <data_urls(逗号拼接)>"
