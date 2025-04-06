@@ -79,7 +79,7 @@ is_speaking = False
 print("* 开始录音")
 
 while True:
-    data = stream.read(CHUNK)
+    data = stream.read(CHUNK, exception_on_overflow=False)
 
     # 进行 VAD 检测
     is_speech = vad.is_speech(data, RATE)
