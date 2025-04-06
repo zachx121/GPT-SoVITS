@@ -46,6 +46,16 @@ def save_audio(audio, sr, fp):
     scipy.io.wavfile.write(fp, sr, audio)
 
 
+def resample_audio(audio_arr_int16, original_rate=32000, target_rate=16000):
+    # 计算重采样后的长度
+    resampled_length = int(len(audio_arr_int16) * (target_rate / original_rate))
+    # 进行重采样
+    resampled_audio = scipy.signal.resample(audio_arr_int16, resampled_length)
+    # 将重采样后的音频数据转换回 int16 类型
+    resampled_audio_int16 = np.int16(resampled_audio)
+    return resampled_audio_int16
+
+
 # 计算音量，默认每0.5s一个计算gap
 def cal_rms(inp_buffer, delta=0.5, sr=SAMPLE_RATE, sw=SAMPLE_WIDTH, c=CHANNELS):
     bps = sr * sw * c

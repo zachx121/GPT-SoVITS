@@ -52,7 +52,7 @@ class ReferenceInfo:
     @staticmethod
     def from_oss(sid):
         # todo
-        pass
+        raise NotImplementedError()
 
     def __str__(self):
         return f"audio_fp='{self.audio_fp}', text='{self.text}', lang='{self.lang}'"
