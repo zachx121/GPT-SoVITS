@@ -549,7 +549,8 @@ class GSVModel:
             # test_cxm
             # a, b, c = (0.01596191493148245, -0.15270688734650273, 1.7947908880583727)
             # ChatTTS_Voice_Clone_User_3951_20250123010229136_x8bf (cxm)
-            a, b, c, d = (1.4589877459468358e-05, -0.003125013569752014, 0.2354471444393487, -1.7437911823924999)
+            # a, b, c, d = (1.4589877459468358e-05, -0.003125013569752014, 0.2354471444393487, -1.7437911823924999)
+            a, b, c, d = (1.4589877459468358e-05, -0.005125013569752014, 0.3354471444393487, -0.8437911823924999)
         else:
             logging.warning(f">>> 语言'{lang}' 对应的时长预估参数未就绪，借用中文的")
             a, b, c, d = (1.4589877459468358e-05, -0.003125013569752014, 0.2354471444393487, -1.7437911823924999)
@@ -718,7 +719,7 @@ class GSVModel:
 
 
 # public share gradio is super laggy
-def webui_list_audios(directory, gr_share=False, port=8002):
+def webui_list_audios(directory, port=6006):
     # 检查目录是否存在
     assert os.path.exists(directory), f"指定的目录 {directory} 不存在。"
 
@@ -771,10 +772,7 @@ def webui_list_audios(directory, gr_share=False, port=8002):
                     gr.Plot(value=plot_waveform(fp))
         # gr.render()
 
-    if gr_share:
-        demo.launch(share=True)
-    else:
-        demo.launch(server_port=port)
+    demo.launch(server_port=port, share=True)
     # demo.close()
 
 
@@ -793,8 +791,12 @@ def webui_list_audios(directory, gr_share=False, port=8002):
 # python -m service_GSV.GSV_model doctorwho en  # 推理
 # python -m service_GSV.GSV_model doctorwho  # 仅播放已经保存的测试音频文件
 # python -m service_GSV.GSV_model ChatTTS_Voice_Clone_User_3866_20250319223416792_99ng en
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_User_3870_20250421164911734_aiqs en  # 推理
+# python -m service_GSV.GSV_model dianyin_aiqs en
+# python -m service_GSV.GSV_model dianyin_aiqs_clearvoice en
 if __name__ == '__main__':
     local_test_dir = "audio_test"
+    lang = "en"
     if len(sys.argv) >= 3:
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
         sid = sys.argv[1]
@@ -881,7 +883,7 @@ if __name__ == '__main__':
     os.makedirs(opt_dir, exist_ok=True)
     audio_list = []
     cmt_list = []
-    text_fp = "./core/quality_check/text_en_us.txt"
+    text_fp = "./core/quality_check/text_en_us.txt" if lang == "en" else "./core/quality_check/text_zh_cn.txt"
     with open(text_fp, "r", encoding="utf-8") as fr:
         lines = [i.strip() for i in fr.readlines()]
         lines = [i for i in lines if len(i) >= 1]

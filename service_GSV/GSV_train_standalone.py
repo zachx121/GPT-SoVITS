@@ -345,6 +345,7 @@ def open_denoise_clearvoice(inp_dir, opt_dir):
     except subprocess.CalledProcessError as e:
         logger.error(f"命令执行失败，错误信息如下：")
         logger.error(e.stderr)
+        raise e
 
 
 def open_denoise(denoise_inp_dir, denoise_opt_dir):
@@ -921,6 +922,9 @@ def workflow(inp_params):
 # python -m service_GSV.GSV_train_standalone ChatTTS_Voice_Clone_Common_KellyV2 en_us 'http://resource.aisounda.cn/model%2Fclone%2Fself%2F701c5a35-0e7f-4832-a805-72f3c93ea007.m4a?e=1740386407&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:MsdLRnmCo5YajmN8maURh3-yCkI='
 # python -m service_GSV.GSV_train_standalone abc_test_of_d733 zh_cn 'http://resource.aisounda.cn/tmp/bjcy8k8x51vb9dh.wav?e=1741438428&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:8ogpXCSlZtqrm0kEjI3iqju00bw='
 # python -m service_GSV.GSV_train_standalone user_0 zh_cn 'local'
+# python -m service_GSV.GSV_train_standalone ChatTTS_Voice_Clone_User_3870_20250421164911734_aiqs zh_cn 'local'
+# python -m service_GSV.GSV_train_standalone_debug dianyin_aiqs zh_cn 'local'
+# python -m service_GSV.GSV_train_standalone dianyin_aiqs_clearvoice zh_cn 'local'
 if __name__ == '__main__':
     try:
         assert len(sys.argv) >= 4, "python -m service_GSV.GSV_train_standalone <sid> <lang> <data_urls(逗号拼接)>"
