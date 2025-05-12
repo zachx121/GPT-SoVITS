@@ -45,3 +45,4 @@ yamlargparse==1.31.1
 pesq
 torchinfo
 einops
+rotary_embedding_torch

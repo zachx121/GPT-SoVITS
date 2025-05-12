@@ -64,16 +64,17 @@ def train_consumer():
         # 执行训练逻辑
         sid = task['speaker']
         LANG = task['lang']
-        data_urls = task['data_urls']
+        data_urls = ",".join(task['data_urls'])
+        skip_slice = task['skip_slice']
         # 只取 data_urls 的第一个元素
-        first_data_url = str(data_urls[0])  # 确保是字符串类型
+        # first_data_url = str(data_urls[0])  # 确保是字符串类型
         try:
             # 调用训练脚本
             logger.info(f">>> speaker='{sid}', Language='{LANG}'")
-            logger.info(f">>> data_urls: {first_data_url}")
+            logger.info(f">>> data_urls: {data_urls}")
             # 启动子进程（添加 -u 参数禁用缓冲）
             proc = subprocess.Popen(
-                [sys.executable, "-u", "-m", "service_GSV.GSV_train_standalone", sid, LANG, first_data_url],
+                [sys.executable, "-u", "-m", "service_GSV.GSV_train_standalone", sid, LANG, data_urls, skip_slice],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,

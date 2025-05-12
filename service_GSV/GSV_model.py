@@ -778,30 +778,33 @@ def webui_list_audios(directory, port=6006):
 
 # 由于用到了相对路径的import，必须以module形式执行
 # python -m service_GSV.GSV_model <sid> <lang>
-# -- 这个没就绪 python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_KellyV2 en
-# python -m service_GSV.GSV_model test_cxm en
-# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_PhenixV2 en
-# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_PhenixV2 en manual
-# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_OrionV2 en
-# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_OrionV2.1 en
-# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_ZoeV2 en
-# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_NinaV2 en
-# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_User_3125_20250307140742211_jwa0 en
-# python -m service_GSV.GSV_model doctorwho en peace # 用suffix=peace的参考音频进行推理
-# python -m service_GSV.GSV_model doctorwho en  # 推理
+# -- 这个没就绪 python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_KellyV2 en_us
+# python -m service_GSV.GSV_model test_cxm en_us
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_PhenixV2 en_us
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_PhenixV2 en_us manual
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_OrionV2 en_us
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_OrionV2.1 en_us
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_ZoeV2 en_us
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_NinaV2 en_us
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_User_3125_20250307140742211_jwa0 en_us
+# python -m service_GSV.GSV_model doctorwho en_us peace # 用suffix=peace的参考音频进行推理
+# python -m service_GSV.GSV_model doctorwho en_us  # 推理
 # python -m service_GSV.GSV_model doctorwho  # 仅播放已经保存的测试音频文件
-# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_User_3866_20250319223416792_99ng en
-# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_User_3870_20250421164911734_aiqs en  # 推理
-# python -m service_GSV.GSV_model dianyin_aiqs en
-# python -m service_GSV.GSV_model dianyin_aiqs_clearvoice en
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_User_3866_20250319223416792_99ng en_us
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_User_3870_20250421164911734_aiqs en_us  # 推理
+# python -m service_GSV.GSV_model dianyin_aiqs en_us
+# python -m service_GSV.GSV_model dianyin_aiqs_clearvoice en_us default
+# python -m service_GSV.GSV_model dctwho en_us default 10
 if __name__ == '__main__':
     local_test_dir = "audio_test"
-    lang = "en"
+    lang = "en_us"
     if len(sys.argv) >= 3:
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
         sid = sys.argv[1]
         lang = sys.argv[2]
+        lang = "en_us" if lang.lower() in ["en", "en_us"] else lang
         ref = sys.argv[3] if len(sys.argv) >= 4 else C.D_REF_SUFFIX
+        headN = int(sys.argv[4]) if len(sys.argv) >= 5 else -1
         print(f">>> Inference with sid={sid} lang={lang} ref={ref}")
         sovits_fp = R.get_sovits_fp(sid)
         gpt_fp = R.get_gpt_fp(sid)
@@ -824,7 +827,7 @@ if __name__ == '__main__':
         # #                           text="大家好，欢迎来到我的直播间，我是你们的主播小美。",
         # #                           lang="ZH")
 
-        # lang = "en"
+        # lang = "en_us"
         # sid = "lydia"
         # sovits_fp = "/root/GPT-SoVITS/SoVITS_weights_v2/xxx_e8_s168.pth"
         # gpt_fp = "/root/GPT-SoVITS/GPT_weights_v2/xxx-e15.ckpt"
@@ -844,7 +847,7 @@ if __name__ == '__main__':
             pass
 
 
-        lang = "en"
+        lang = "en_us"
         sid = "amber"
         sovits_fp = "/root/GPT-SoVITS/SoVITS_weights_v2/xxx_e12_s252.pth"
         gpt_fp = "/root/GPT-SoVITS/GPT_weights_v2/xxx-e15.ckpt"
@@ -883,10 +886,10 @@ if __name__ == '__main__':
     os.makedirs(opt_dir, exist_ok=True)
     audio_list = []
     cmt_list = []
-    text_fp = "./core/quality_check/text_en_us.txt" if lang == "en" else "./core/quality_check/text_zh_cn.txt"
+    text_fp = "./core/quality_check/text_en_us.txt" if lang == "en_us" else "./core/quality_check/text_zh_cn.txt"
     with open(text_fp, "r", encoding="utf-8") as fr:
         lines = [i.strip() for i in fr.readlines()]
-        lines = [i for i in lines if len(i) >= 1]
+        lines = [i for i in lines if len(i) >= 1][:headN]
     for idx, line in enumerate(lines):
         begin_t = time.time()
         logging.info(f">>> 开始合成({idx}/{len(lines)}): {line}")
@@ -903,7 +906,7 @@ if __name__ == '__main__':
         opt_fp = os.path.join(opt_dir, opt_fp)
         sf.write(opt_fp, audio, sr)
         cmt_list.append(
-            f"单词数: {len(line.split(' '))} 合成耗时: {(end_t - begin_t) * 1000:.0f}ms 推理次数={tts_num}\n异常检测: leak={is_leak} abnormal={is_any_abnormal}")
+            f"单词数: {len(line.split(' '))} 合成耗时: {(end_t - begin_t) * 1000:.0f}ms 推理次数={tts_num} 异常检测: leak={is_leak} abnormal={is_any_abnormal}")
         # from pydub import AudioSegment
         # audio_segment = AudioSegment(
         #     audio.tobytes(),

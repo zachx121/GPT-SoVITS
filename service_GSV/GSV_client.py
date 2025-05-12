@@ -15,6 +15,7 @@ logging.basicConfig(format='[%(asctime)s-%(levelname)s-%(funcName)s]: %(message)
 
 url = "https://u212392-8449-c474cb97.beijinga.seetacloud.com/"
 url = "https://u212392-9373-aee51bf7.bjb1.seetacloud.com:8443/"
+url = "https://u212392-bb8d-5504bb62.bjb1.seetacloud.com:8443/"
 
 assert url.endswith("/")
 
@@ -100,12 +101,29 @@ sid, lang, sid_data_urls = "ChatTTS_Voice_Clone_0_Mike_komd", "en_us", ["http://
 # train(sid, sid_data_urls, lang=lang)
 # assert is_model_oss_available(sid)
 # sys.exit(0)
-load('test_silang1636')
-load('fuhang_1', 4)
-unload('fuhang_1')
+
+# >>>>> Load & Unload Test
+# rsp = requests.post(url + "get_all_exist_model",
+#                     headers=headers,
+#                     timeout=10)
+# print(rsp.status_code, rsp.json())
+# load('ChatTTS_Voice_Clone_Common_PhenixV2', 2)
+# load('ChatTTS_Voice_Clone_User_3237_20250217022232271_mtbh', 2)
+# load('ChatTTS_Voice_Clone_Common_KellyV2', 2)
+# sys.exit(0)
+rsp = requests.post(url + "model_status",
+                    headers=headers,
+                    timeout=10)
+print(rsp.status_code, rsp.json())
+unload("ChatTTS_Voice_Clone_Common_PhenixV2")
+unload("ChatTTS_Voice_Clone_User_3237_20250217022232271_mtbh")
+unload("ChatTTS_Voice_Clone_Common_KellyV2")
+sys.exit(0)
+
+
 load(sid)
 model_status(sid)
-# sys.exit(0)
+sys.exit(0)
 sta = time.time()
 # add_ref(sid)  # 不需要了，load会自动指定默认ref
 # inference(sid, text=f"this is a general sentence of number", trace_id=f"debug_")

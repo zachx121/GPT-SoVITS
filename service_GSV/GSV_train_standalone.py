@@ -825,6 +825,7 @@ def workflow(inp_params):
     lang = inp_params["lang"]
     data_urls = inp_params["data_urls"]
     post2oss = inp_params.get("post2oss", "1")
+    skip_slice = inp_params.get("skip_slice", "0")
 
     assert lang in ["en_us", "jp_jp", "ko_kr", "zh_cn", "auto"], "语言必须是 en_us/jp_jp/ko_kr/zh_cn/auto"
 
@@ -861,8 +862,13 @@ def workflow(inp_params):
 
         logger.info(">>> At step_convert2wav")
         step_convert2wav(inp_dir)
-        logger.info(f">>> At step_slice. saved at {SLICE_DIR}")
-        open_slice(inp_dir, SLICE_DIR, min_interval=80 if lang.lower() in ["en_us"] else 300)
+        if skip_slice == "1":
+            cmd = f"mv {inp_dir}/*.wav {SLICE_DIR}"
+            s, o = getstatusoutput(cmd)
+            assert s == 0, f"move file to SLICE_DIR failed. output:{o}"
+        else:
+            logger.info(f">>> At step_slice. saved at {SLICE_DIR}")
+            open_slice(inp_dir, SLICE_DIR, min_interval=80 if lang.lower() in ["en_us"] else 300)
         logger.info(f">>> At step_denoise. saved at {DENOISED_DIR}")
         # open_denoise(SLICE_DIR, DENOISED_DIR)
         open_denoise_clearvoice(SLICE_DIR, DENOISED_DIR)
@@ -925,15 +931,19 @@ def workflow(inp_params):
 # python -m service_GSV.GSV_train_standalone ChatTTS_Voice_Clone_User_3870_20250421164911734_aiqs zh_cn 'local'
 # python -m service_GSV.GSV_train_standalone_debug dianyin_aiqs zh_cn 'local'
 # python -m service_GSV.GSV_train_standalone dianyin_aiqs_clearvoice zh_cn 'local'
+# python -m service_GSV.GSV_train_standalone dctwho en_us 'https://public.yisounda.com/tmp/d1.WAV?e=1746952300&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:Ax2UCAPbBSc7JaZw-Tv0nckSP80=,https://public.yisounda.com/tmp/d0.WAV?e=1746952301&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:MznWJH_yB1zzRJp-L0l0kjo47C4=,https://public.yisounda.com/tmp/d7.WAV?e=1746952302&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:PSfPwpQRhe8z3LrHpMNmxgPMuUs=,https://public.yisounda.com/tmp/d6.WAV?e=1746952302&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:h4R33Li6kf3XZ_alGAomWj6FxuQ=,https://public.yisounda.com/tmp/d5.WAV?e=1746952303&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:1Re_FOKk_O4kge3aT_bwGni24DQ=,https://public.yisounda.com/tmp/d4.WAV?e=1746952304&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:pmtjjVXtZ3P-5naGMCuooYKtJAM=,https://public.yisounda.com/tmp/d3.WAV?e=1746952304&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:Io3OxQFUq2ZhugMuOqmOKe3dEX4=,https://public.yisounda.com/tmp/d2.WAV?e=1746952305&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:eiZgk0k7FM0KCwv0Fyy-pPuFkzE=,https://public.yisounda.com/tmp/d9.wav?e=1746952306&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:n0Lh89jDMfR0mMT7B_DboTEKR_Q=,https://public.yisounda.com/tmp/d18.wav?e=1746952307&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:uUfI0bCXWZ54N1WBHas4BYbjq0g=,https://public.yisounda.com/tmp/d17.wav?e=1746952307&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:attMlHwdVkADidYoRv3_t9Wn_fo=,https://public.yisounda.com/tmp/d16.wav?e=1746952308&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:CN0vmc0mHAY7XTGPeVaSPewUM6w=,https://public.yisounda.com/tmp/d15.wav?e=1746952309&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:mZA_LFHLsdVzWz5p_aQguXCmqmI=,https://public.yisounda.com/tmp/d14.wav?e=1746952309&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:NABWx_nwqnq273Fd2NOXO-gACME=,https://public.yisounda.com/tmp/d13.wav?e=1746952310&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:PdLskiAqeS53lNDN72t5z2sDiJU=,https://public.yisounda.com/tmp/d12.wav?e=1746952311&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:4HQP7PWgcsRriTwvNFbTyf44WWw=,https://public.yisounda.com/tmp/d11.wav?e=1746952311&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:yIIdOLuhmtVKu1DxIFnVlqPW5EQ=,https://public.yisounda.com/tmp/d19.wav?e=1746952312&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:Eg-MK6EJO6PQHoK8ioTc96HWmII=,https://public.yisounda.com/tmp/d8.wav?e=1746952313&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:zzHmzooPgYfKwOmLAC5JmBEZySE=,https://public.yisounda.com/tmp/d10.wav?e=1746952313&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:2hcFnY7VI820WBxLAEIDR77Tce0=' "1"
+# python -m service_GSV.GSV_train_standalone dctwho en_us 'local' "1"
 if __name__ == '__main__':
     try:
-        assert len(sys.argv) >= 4, "python -m service_GSV.GSV_train_standalone <sid> <lang> <data_urls(逗号拼接)>"
+        assert len(sys.argv) >= 4, "python -m service_GSV.GSV_train_standalone <sid> <lang> <data_urls(逗号拼接)> <'1' for skip_slice>"
         sid = sys.argv[1]
         lang = sys.argv[2]  # en_us/jp_jp/ko_kr/zh_cn/auto
         data_urls = sys.argv[3].split(",")
+        skip_slice = str(sys.argv[4]) if len(sys.argv) >= 5 else "0"
         params = {"speaker_id": sid,
                   "lang": lang,
-                  "data_urls": data_urls}
+                  "data_urls": data_urls,
+                  "skip_slice": skip_slice}
 
         # url1 = utils_audio.get_url_from_qiniu("model/clone/device/20250211/1000294265/6f50a0eb-2a46-4973-93d2-2dbe84d0f3a7.m4a")
         # params = {"speaker_id": "test_cxm",
