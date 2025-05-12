@@ -77,7 +77,10 @@ class ASRModelWrapper:
         if self.lang == "zh_cn":
             # res: [{'key': '董宇辉带货_16k_mono', 'text': '那会儿人们对于沟通是有多么强烈的欲望呀，啊就像那些痛苦时刻的诗人有那么强烈的。'}]
             res = self.model.generate(input=inp, disable_pbar=True)
-            asr_txt = res[0]['text']
+            if res is not None and len(res) > 0:
+                asr_txt = res[0]['text']
+            else:
+                asr_txt = ""
             return asr_txt
         else:
             segments, info = self.model.transcribe(
@@ -102,8 +105,8 @@ class ASRModelWrapper:
         model = AutoModel(
             model=path_asr,
             model_revision="v2.0.4",
-            vad_model=path_vad,
-            vad_model_revision="v2.0.4",
+            # vad_model=path_vad,
+            # vad_model_revision="v2.0.4",
             punc_model=path_punc,
             punc_model_revision="v2.0.4",
             disable_update=True
