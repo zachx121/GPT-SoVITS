@@ -472,7 +472,7 @@ def open1Bb_gpt(exp_name,
 
 def step_convert2wav(inp):
     for name in sorted(list(os.listdir(inp))):
-        if any(name.endswith(i) for i in ['m4a', 'mp3', 'mp4']):
+        if any(name.lower().endswith(i) for i in ['m4a', 'mp3', 'mp4']):
             # inp = "/root/GPT-SoVITS/voice_sample/ChatTTS_Voice_Clone_4_222rb2j"
             fp = os.path.join(inp, name)
             new_fp = os.path.join(inp, os.path.splitext(name)[0] + ".wav")
