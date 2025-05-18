@@ -795,6 +795,11 @@ def webui_list_audios(directory, port=6006):
 # python -m service_GSV.GSV_model dianyin_aiqs en_us
 # python -m service_GSV.GSV_model dianyin_aiqs_clearvoice en_us default
 # python -m service_GSV.GSV_model dctwho en_us default 10
+# python -m service_GSV.GSV_model dctwho en_us default 10 both  # 默认为"both"加载GPT、SoVITS
+# python -m service_GSV.GSV_model dctwho en_us default 10 gpt
+# python -m service_GSV.GSV_model dctwho en_us default 10 sovits
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_Phenixv3 en_us default 10 gpt
+# python -m service_GSV.GSV_model ChatTTS_Voice_Clone_Common_NinaV3 en_us default 10 gpt
 if __name__ == '__main__':
     local_test_dir = "audio_test"
     lang = "en_us"
@@ -805,10 +810,18 @@ if __name__ == '__main__':
         lang = "en_us" if lang.lower() in ["en", "en_us"] else lang
         ref = sys.argv[3] if len(sys.argv) >= 4 else C.D_REF_SUFFIX
         headN = int(sys.argv[4]) if len(sys.argv) >= 5 else -1
+        part_load = sys.argv[5] if len(sys.argv) >= 6 else "both"
         print(f">>> Inference with sid={sid} lang={lang} ref={ref}")
         sovits_fp = R.get_sovits_fp(sid)
         gpt_fp = R.get_gpt_fp(sid)
-        M = GSVModel(sovits_model_fp=sovits_fp, gpt_model_fp=gpt_fp)
+        if part_load == "both":
+            M = GSVModel(sovits_model_fp=sovits_fp, gpt_model_fp=gpt_fp)
+        elif part_load == "gpt":
+            M = GSVModel(sovits_model_fp=None, gpt_model_fp=gpt_fp)
+        elif part_load == "sovits":
+            M = GSVModel(sovits_model_fp=sovits_fp, gpt_model_fp=None)
+        else:
+            raise Exception(f"Unexpected `part_load` param: '{part_load}' (both/gpt/sovits)")
         ref_info = ReferenceInfo.from_sid(sid, suffix=ref)
 
         # sf.write(os.path.join(opt_dir, "res_audio.wav"), np.hstack(audio_list), sr)

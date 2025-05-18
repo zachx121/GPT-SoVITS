@@ -26,6 +26,7 @@ from . import GSV_const as C
 from .GSV_const import Route as R
 import pika
 import subprocess
+
 assert getstatusoutput("ls tools")[0] == 0, "必须在项目根目录下执行不然会有路径问题 e.g. python GPT_SoVITS/GSV_train.py"
 
 # 配置日志
@@ -40,13 +41,32 @@ queue_tran_result = "queue_tran_result"
 
 
 # 创建流读取函数
-def log_stream(stream, logger, level=logging.INFO):
-    while True:
-        line = stream.readline()
-        if not line:
-            break
-        if line.strip():
-            logger.log(level, line.strip())
+def log_stream(stream, logger, default_level):
+    """
+    解析子进程输出的日志行并动态匹配日志级别
+    :param stream: 子进程的输出流（stdout/stderr）
+    :param logger: 主进程的日志记录器
+    :param default_level: 当无法解析时的默认日志级别
+    """
+    try:
+        for line in iter(stream.readline, ''):
+            line = line.strip()
+            # 正则匹配子进程日志中的级别标识（如 "INFO:root:..."）
+            match = re.match(r'^(?P<level>INFO|ERROR|WARNING|DEBUG):(?P<logger>\w+):(?P<msg>.*)', line)
+            if match:
+                # 提取匹配到的级别和消息
+                level_name = match.group('level')
+                msg = match.group('msg')
+                # 将字符串级别转换为logging常量
+                level = getattr(logging, level_name, default_level)
+                logger.log(level, msg)
+            else:
+                # 无法解析时使用默认级别
+                logger.log(default_level, line)
+    except Exception as e:
+        logger.error(f"日志流处理异常: {str(e)}")
+    finally:
+        stream.close()
 
 
 def train_consumer():
@@ -84,8 +104,9 @@ def train_consumer():
             )
 
             # 创建并启动日志线程
-            stdout_thread = Thread(target=log_stream, args=(proc.stdout, logger, logging.INFO))
-            stderr_thread = Thread(target=log_stream, args=(proc.stderr, logger, logging.ERROR))
+            # 修改线程启动参数（不再硬编码级别）
+            stdout_thread = Thread(target=log_stream, args=(proc.stdout, logger, logging.INFO))  # 默认级别INFO
+            stderr_thread = Thread(target=log_stream, args=(proc.stderr, logger, logging.DEBUG))  # 此处改为DEBUG避免覆盖真实级别
             stdout_thread.start()
             stderr_thread.start()
 
@@ -188,7 +209,7 @@ def connect_to_rabbitmq():
     except Exception as e:
         logger.error(f"Failed to connect to RabbitMQ: {repr(e)}")
         return None, None
-    
+
 
 if __name__ == "__main__":
     try:
@@ -211,11 +232,11 @@ if __name__ == "__main__":
         log_path = os.path.join(log_dir, log_file)
 
         file_handler = TimedRotatingFileHandler(
-        filename=log_path,  # 日志文件路径
-        when="midnight",    # 按天分隔（午夜生成新日志文件）
-        interval=1,         # 每 1 天分隔一次
-        backupCount=7,      # 最多保留最近 7 天的日志文件
-        encoding="utf-8"    # 设置编码，避免中文日志乱码
+            filename=log_path,  # 日志文件路径
+            when="midnight",  # 按天分隔（午夜生成新日志文件）
+            interval=1,  # 每 1 天分隔一次
+            backupCount=7,  # 最多保留最近 7 天的日志文件
+            encoding="utf-8"  # 设置编码，避免中文日志乱码
         )
         file_handler.suffix = "%Y-%m-%d"  # 设置日志文件后缀格式，例如 server.log.2025-01-09
         file_handler.setFormatter(logging.Formatter(

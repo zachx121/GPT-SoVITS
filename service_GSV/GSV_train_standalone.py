@@ -73,6 +73,7 @@ from .GSV_const import Route as R
 import utils_audio
 
 logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 n_cpu = cpu_count()
 
@@ -472,7 +473,7 @@ def open1Bb_gpt(exp_name,
 
 def step_convert2wav(inp):
     for name in sorted(list(os.listdir(inp))):
-        if any(name.endswith(i) for i in ['m4a', 'mp3', 'mp4']):
+        if any(name.lower().endswith(i) for i in ['m4a', 'mp3', 'mp4']):
             # inp = "/root/GPT-SoVITS/voice_sample/ChatTTS_Voice_Clone_4_222rb2j"
             fp = os.path.join(inp, name)
             new_fp = os.path.join(inp, os.path.splitext(name)[0] + ".wav")
@@ -921,6 +922,12 @@ def workflow(inp_params):
         audio_url = utils_audio.post2qiniu(R.get_ref_audio_fp(sid, C.D_REF_SUFFIX), R.get_ref_audio_osskey(sid))
         text_url = utils_audio.post2qiniu(R.get_ref_text_fp(sid, C.D_REF_SUFFIX), R.get_ref_text_osskey(sid))
         logging.info(f">>> [audio_url]:'{audio_url}' [text_url]:'{text_url}'")
+
+
+# 试听训练样本
+def check_training_sample(sid):
+    # /root/autodl-fs/voice_sample/ChatTTS_Voice_Clone_Common_Phenixv3/asr/denoised.list
+    pass
 
 
 # python -m service_GSV.GSV_train_standalone test_cxm zh_cn 'model/clone/device/20250211/1000294265/6f50a0eb-2a46-4973-93d2-2dbe84d0f3a7.m4a'
