@@ -925,9 +925,49 @@ def workflow(inp_params):
 
 
 # 试听训练样本
-def check_training_sample(sid):
-    # /root/autodl-fs/voice_sample/ChatTTS_Voice_Clone_Common_Phenixv3/asr/denoised.list
-    pass
+def check_training_sample(sid, port=None):
+    import gradio as gr
+    import matplotlib.pyplot as plt
+    import numpy as np
+    fp = os.path.join(C.VOICE_SAMPLE_DIR, sid, "asr/denoised.list")
+    with open(fp, "r") as fr:
+        lines = [i.strip() for i in fr.readlines()]
+
+    with gr.Blocks() as demo:
+        gr.Markdown(f"### 音频文件试听\n{fp}")
+        for line in lines:
+            audio_fp, _, audio_lang, audio_text = line.split("|")
+            with gr.Row():
+                with gr.Column():
+                    gr.Audio(value=audio_fp, type="filepath", label=os.path.basename(audio_fp))
+                with gr.Column():
+                    with gr.Row():
+                        gr.Markdown(audio_text)
+                with gr.Column():
+                    # todo visualize the wave of fp
+                    def plot_waveform(audio_path):
+                        # 读取音频文件
+                        y, sr = librosa.load(audio_path, sr=None)
+                        # 创建图形
+                        fig, ax = plt.subplots(figsize=(8, 3))
+                        # 计算时间轴
+                        time = np.arange(0, len(y)) / sr
+                        # 绘制波形图
+                        ax.plot(time, y, color='#1f77b4')
+                        # 设置标签和标题
+                        ax.set_xlabel('Time (s)')
+                        ax.set_ylabel('Amplitude')
+                        ax.set_title(f'Waveform: {os.path.basename(audio_path)}')
+                        # 设置网格
+                        ax.grid(True, alpha=0.3)
+                        # 紧凑布局
+                        fig.tight_layout()
+                        return fig
+
+                    # 使用gr.Plot显示matplotlib图形
+                    gr.Plot(value=plot_waveform(audio_fp))
+
+    demo.launch(server_port=port, share=True)
 
 
 # python -m service_GSV.GSV_train_standalone test_cxm zh_cn 'model/clone/device/20250211/1000294265/6f50a0eb-2a46-4973-93d2-2dbe84d0f3a7.m4a'
@@ -940,8 +980,13 @@ def check_training_sample(sid):
 # python -m service_GSV.GSV_train_standalone dianyin_aiqs_clearvoice zh_cn 'local'
 # python -m service_GSV.GSV_train_standalone dctwho en_us 'https://public.yisounda.com/tmp/d1.WAV?e=1746952300&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:Ax2UCAPbBSc7JaZw-Tv0nckSP80=,https://public.yisounda.com/tmp/d0.WAV?e=1746952301&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:MznWJH_yB1zzRJp-L0l0kjo47C4=,https://public.yisounda.com/tmp/d7.WAV?e=1746952302&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:PSfPwpQRhe8z3LrHpMNmxgPMuUs=,https://public.yisounda.com/tmp/d6.WAV?e=1746952302&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:h4R33Li6kf3XZ_alGAomWj6FxuQ=,https://public.yisounda.com/tmp/d5.WAV?e=1746952303&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:1Re_FOKk_O4kge3aT_bwGni24DQ=,https://public.yisounda.com/tmp/d4.WAV?e=1746952304&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:pmtjjVXtZ3P-5naGMCuooYKtJAM=,https://public.yisounda.com/tmp/d3.WAV?e=1746952304&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:Io3OxQFUq2ZhugMuOqmOKe3dEX4=,https://public.yisounda.com/tmp/d2.WAV?e=1746952305&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:eiZgk0k7FM0KCwv0Fyy-pPuFkzE=,https://public.yisounda.com/tmp/d9.wav?e=1746952306&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:n0Lh89jDMfR0mMT7B_DboTEKR_Q=,https://public.yisounda.com/tmp/d18.wav?e=1746952307&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:uUfI0bCXWZ54N1WBHas4BYbjq0g=,https://public.yisounda.com/tmp/d17.wav?e=1746952307&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:attMlHwdVkADidYoRv3_t9Wn_fo=,https://public.yisounda.com/tmp/d16.wav?e=1746952308&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:CN0vmc0mHAY7XTGPeVaSPewUM6w=,https://public.yisounda.com/tmp/d15.wav?e=1746952309&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:mZA_LFHLsdVzWz5p_aQguXCmqmI=,https://public.yisounda.com/tmp/d14.wav?e=1746952309&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:NABWx_nwqnq273Fd2NOXO-gACME=,https://public.yisounda.com/tmp/d13.wav?e=1746952310&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:PdLskiAqeS53lNDN72t5z2sDiJU=,https://public.yisounda.com/tmp/d12.wav?e=1746952311&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:4HQP7PWgcsRriTwvNFbTyf44WWw=,https://public.yisounda.com/tmp/d11.wav?e=1746952311&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:yIIdOLuhmtVKu1DxIFnVlqPW5EQ=,https://public.yisounda.com/tmp/d19.wav?e=1746952312&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:Eg-MK6EJO6PQHoK8ioTc96HWmII=,https://public.yisounda.com/tmp/d8.wav?e=1746952313&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:zzHmzooPgYfKwOmLAC5JmBEZySE=,https://public.yisounda.com/tmp/d10.wav?e=1746952313&token=izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP:2hcFnY7VI820WBxLAEIDR77Tce0=' "1"
 # python -m service_GSV.GSV_train_standalone dctwho en_us 'local' "1"
+# python -m service_GSV.GSV_train_standalone ChatTTS_Voice_Clone_Common_Phenixv3 listen
+# python -m service_GSV.GSV_train_standalone ChatTTS_Voice_Clone_Common_NinaV3 listen
 if __name__ == '__main__':
     try:
+        if len(sys.argv) == 3 and sys.argv[2] == "listen":
+            sid = sys.argv[1]
+            check_training_sample(sid)
         assert len(sys.argv) >= 4, "python -m service_GSV.GSV_train_standalone <sid> <lang> <data_urls(逗号拼接)> <'1' for skip_slice>"
         sid = sys.argv[1]
         lang = sys.argv[2]  # en_us/jp_jp/ko_kr/zh_cn/auto
