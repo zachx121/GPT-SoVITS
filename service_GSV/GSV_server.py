@@ -152,7 +152,7 @@ def adjust_loudness(audio_arr, target_lufs=-23.0):
     return adjusted_audio
 
 
-def model_process(sid: str, event):
+def model_process(sid: str, event, part_load):
     M = None
     connection = None
     channel = None
@@ -237,10 +237,21 @@ def model_process(sid: str, event):
                           exclusive=False,  # 是否为独占队列
                           auto_delete=False, # 是否自动删除
                           arguments=args)   # 额外的参数（如过期时间）
-    
-    M = GSVModel(sovits_model_fp=R.get_sovits_fp(sid),
-                 gpt_model_fp=R.get_gpt_fp(sid),
-                 speaker=sid)
+    if part_load == "both":
+        M = GSVModel(sovits_model_fp=R.get_sovits_fp(sid),
+                     gpt_model_fp=R.get_gpt_fp(sid),
+                     speaker=sid)
+    elif part_load == "gpt":
+        M = GSVModel(sovits_model_fp=None,
+                     gpt_model_fp=R.get_gpt_fp(sid),
+                     speaker=sid)
+    elif part_load == "sovits":
+        M = GSVModel(sovits_model_fp=R.get_sovits_fp(sid),
+                     gpt_model_fp=None,
+                     speaker=sid)
+    else:
+        raise Exception(f"Unexpected `part_load` param: '{part_load}' (both/gpt/sovits)")
+
     # 预热推理 | 特意放在event之后，避免加载等太久
     p = C.InferenceParam({"speaker": sid, "text": "Hello,how are you today?", "lang": "en_us"})
     _ = M.predict(target_text=p.text,
@@ -375,6 +386,7 @@ def load_model():
     info = request.get_json()
     sid = info['speaker']
     sid_num = info['speaker_num']
+    part_load = info.get('part_load', "both")
 #   download_overwrite = info.get("download_overwrite", "0")
     logger.info(f"load_model: {info}")
 
@@ -399,7 +411,7 @@ def load_model():
     _load_events = []
     for _ in range(sid_num):
         event = mp.Event()
-        p = mp.Process(target=model_process, args=(sid, event))  # 移除q_out q_inp
+        p = mp.Process(target=model_process, args=(sid, event, part_load))  # 移除q_out q_inp
 
         process_list.append(p)
         _load_events.append(event)
