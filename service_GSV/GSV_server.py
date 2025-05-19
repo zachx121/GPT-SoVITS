@@ -60,6 +60,7 @@ import pyloudnorm as pyln
 
 # 关闭pika的INFO及以下的日志
 logging.getLogger('pika').setLevel(logging.WARNING)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder="./static_folder", static_url_path="")
 
@@ -85,7 +86,7 @@ def get_machine_id():
     try:
         # 尝试通过 socket 获取主机名
         machine_id = socket.gethostname()
-        
+
         # 如果获取失败，尝试通过环境变量获取
         if not machine_id:
             machine_id = os.getenv("HOSTNAME")  # Linux/Docker
@@ -148,17 +149,23 @@ def adjust_loudness(audio_arr, target_lufs=-23.0):
 
     # 根据增益调整音频
     adjusted_audio = pyln.normalize.loudness(audio_arr, current_lufs, target_lufs)
-    
+
     return adjusted_audio
 
 
 def model_process(sid: str, event, part_load):
     M = None
-    connection = None
-    channel = None
+    # global logger
+    logger = config_log()
+    # 连接到 RabbitMQ
+    connection, channel = connect_to_rabbitmq()
+    if not connection or not channel:
+        logger.error("连接mq失败")
+        return  # 如果连接失败，退出函数
 
     def signal_handler(sig, frame):
         # 关闭通道和连接
+        nonlocal M
         if channel is not None:
             channel.stop_consuming()
             channel.close()
@@ -176,8 +183,6 @@ def model_process(sid: str, event, part_load):
     # 注册信号处理器 处理外部主进程触发的 p.terminate()
     signal.signal(signal.SIGTERM, signal_handler)
 
-    global logger
-    logger=config_log()
     # 获取机器的 hostname
     logger.info("开始运行model_process")
     machine_id = get_machine_id()
@@ -210,47 +215,38 @@ def model_process(sid: str, event, part_load):
             "loadStatus": False,      # 加载失败
             "error": "Model download failed or file missing"
         }
-        # 发送模型加载失败事件到 MQ
-        connection, channel = connect_to_rabbitmq()
-        if connection and channel:
-            channel.basic_publish(
-                exchange=exchange_service_load_model_result, 
-                routing_key='', 
-                body=json.dumps(load_result_event),  
-                properties=PROPERTIES
-            )
+        channel.basic_publish(
+            exchange=exchange_service_load_model_result,
+            routing_key='',
+            body=json.dumps(load_result_event),
+            properties=PROPERTIES
+        )
         return  # 退出函数
 
     request_queue_name = queue_service_inference_request_prefix+sid
-    # 连接到 RabbitMQ
-    connection, channel = connect_to_rabbitmq()
-    if not connection or not channel:
-        logger.error("连接mq失败")
-        return  # 如果连接失败，退出函数
     # 设置过期时间（单位：毫秒），这里设置为 1 小时（3600000 毫秒）
     args = {
         'x-expires': 60 * 60 * 1000  # 设置过期时间
     }
     # 声明队列并设置参数
-    channel.queue_declare(queue=request_queue_name, 
+    channel.queue_declare(queue=request_queue_name,
                           durable=False,    # 队列是否持久化
                           exclusive=False,  # 是否为独占队列
-                          auto_delete=False, # 是否自动删除
+                          auto_delete=False,  # 是否自动删除
                           arguments=args)   # 额外的参数（如过期时间）
     if part_load == "both":
-        M = GSVModel(sovits_model_fp=R.get_sovits_fp(sid),
-                     gpt_model_fp=R.get_gpt_fp(sid),
-                     speaker=sid)
+        sovits_model_fp, gpt_model_fp = R.get_sovits_fp(sid), R.get_gpt_fp(sid)
     elif part_load == "gpt":
-        M = GSVModel(sovits_model_fp=None,
-                     gpt_model_fp=R.get_gpt_fp(sid),
-                     speaker=sid)
+        sovits_model_fp, gpt_model_fp = None, R.get_gpt_fp(sid)
     elif part_load == "sovits":
-        M = GSVModel(sovits_model_fp=R.get_sovits_fp(sid),
-                     gpt_model_fp=None,
-                     speaker=sid)
+        sovits_model_fp, gpt_model_fp = R.get_sovits_fp(sid), None
     else:
         raise Exception(f"Unexpected `part_load` param: '{part_load}' (both/gpt/sovits)")
+
+    logger.info(f">>> loading {sid} as: \nsovits_model_fp={sovits_model_fp} \ngpt_model_fp={gpt_model_fp}")
+    M = GSVModel(sovits_model_fp=sovits_model_fp,
+                 gpt_model_fp=gpt_model_fp,
+                 speaker=sid)
 
     # 预热推理 | 特意放在event之后，避免加载等太久
     p = C.InferenceParam({"speaker": sid, "text": "Hello,how are you today?", "lang": "en_us"})
@@ -356,6 +352,7 @@ def model_process(sid: str, event, part_load):
         channel.start_consuming()
     except Exception as e:
         logger.error(f"Error during consuming in model_process. sid={sid}, error: {e}")
+        logger.error(traceback.format_exc())  # 打印完整的堆栈跟踪
     finally:
         # 关闭通道和连接
         logger.warning(f"close channel/connection and del M in try-catch...")
