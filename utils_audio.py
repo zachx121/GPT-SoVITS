@@ -328,6 +328,166 @@ class NoiseCheck:
                 Audio(fp)
                 check(y, sr, debug=True)
 
+    @staticmethod
+    def detect_constant_std_segments(audio_waveform, sr, frame_length=0.1, hop_length=0.05, diff_threshold=0.01,
+                                     min_constant_frames=10, max_cumulative_std_deviation=0.02, plot_results=False):
+        """
+        检测音频波形中帧间标准差保持不变（或极小变化）的片段，并可选择绘制结果。
+        同时，增加逻辑限制连续不变段内标准差的总变动范围。
+
+        # frame_length 太小的话，比如0.01相当于检测第N个和第N+1个0.01s之间的方差变化，这个太陡峭了，用0.1平滑一点
+        # min_constant_frames 持续10帧，也就是10*frame_length=10*0.1=1秒
+
+        参数:
+        audio_waveform (np.array): 输入的音频波形数据（一维NumPy数组）。
+        sr (int): 音频的采样率。
+        frame_length (float): 每一帧的长度（秒）。
+        hop_length (float): 帧之间的跳跃长度（秒），通常小于frame_length以实现重叠。
+        diff_threshold (float): 连续帧标准差之间允许的最大绝对差值，低于此值视为“不变”。
+                                这个值通常应该非常小，接近浮点数的精度限制，例如 1e-5 到 1e-7。
+        min_constant_frames (int): 帧标准差保持不变的最短持续帧数。
+                                    例如，如果每秒100帧，50帧代表0.5秒。
+        max_cumulative_std_deviation (float): 允许的连续不变段内，标准差的最大累积总变动。
+                                              即，(max(segment_std) - min(segment_std)) <= max_cumulative_std_deviation。
+        plot_results (bool): 是否绘制结果图。
+
+        返回:
+        list: 一个列表，每个元素是一个元组 (start_time, end_time)，表示检测到的帧标准差不变的音频段。
+        """
+
+        frame_size = int(frame_length * sr)
+        hop_size = int(hop_length * sr)
+
+        frames = librosa.util.frame(audio_waveform, frame_length=frame_size, hop_length=hop_size, axis=0)
+
+        print(f"Frames shape after librosa.util.frame: {frames.shape}")
+
+        # 计算每一帧内部的标准差 (形状: (num_frames,))
+        frame_stds = np.std(frames, axis=1)
+
+        # 计算相邻帧标准差的绝对差值
+        std_diffs = np.abs(np.diff(frame_stds))
+
+        # 判断哪些帧间变化是“不变”的（小于 diff_threshold）
+        is_constant_diff = std_diffs < diff_threshold
+
+        abnormal_segments = []
+        current_constant_run_start_idx = -1  # 在 is_constant_diff 数组中的起始索引
+
+        # Track min/max std within the current potential constant segment
+        current_segment_min_std = float('inf')
+        current_segment_max_std = float('-inf')
+
+        # 遍历 is_constant_diff 数组来寻找连续的 True 序列
+        for i in range(len(is_constant_diff)):
+            # 更新当前帧的 STD
+            current_frame_std = frame_stds[i]  # This is frame_stds[i]
+            next_frame_std = frame_stds[i + 1]  # This is frame_stds[i+1] if i < len(frame_stds) - 1
+
+            if is_constant_diff[i]:
+                if current_constant_run_start_idx == -1:
+                    # 新的连续不变序列开始
+                    current_constant_run_start_idx = i
+                    # 初始化该序列的 min/max STD
+                    current_segment_min_std = min(current_frame_std, next_frame_std)
+                    current_segment_max_std = max(current_frame_std, next_frame_std)
+                else:
+                    # 扩展现有序列
+                    current_segment_min_std = min(current_segment_min_std, next_frame_std)
+                    current_segment_max_std = max(current_segment_max_std, next_frame_std)
+
+                # 实时检查当前序列的总变动是否超出限制
+                if (current_segment_max_std - current_segment_min_std) > max_cumulative_std_deviation:
+                    # 即使帧间变化小，但总变动太大，中断当前序列
+                    # 检查中断前是否已形成有效片段
+                    if current_constant_run_start_idx != -1:  # Ensure there was a segment in progress
+                        # 这里的 i 是导致超出的那一个 std_diffs 的索引
+                        # 所以有效的恒定帧序列是到 i 之前的那个点
+                        # 连续不变的 diffs 数量： i - current_constant_run_start_idx
+                        # 这意味着有 (i - current_constant_run_start_idx) + 1 个帧的 STD 是恒定的
+                        num_constant_frames_in_segment = (i - current_constant_run_start_idx) + 1
+
+                        if num_constant_frames_in_segment >= min_constant_frames:
+                            # 记录当前有效的片段
+                            start_time = current_constant_run_start_idx * hop_length
+                            end_time = (
+                                                   current_constant_run_start_idx + num_constant_frames_in_segment - 1) * hop_length
+                            abnormal_segments.append((start_time, end_time))
+                    current_constant_run_start_idx = -1  # 重置，等待下一个连续序列
+                    # 重置 min/max STD，因为我们开始了新的潜在序列
+                    current_segment_min_std = float('inf')
+                    current_segment_max_std = float('-inf')
+            else:  # is_constant_diff[i] 为 False，连续性中断
+                if current_constant_run_start_idx != -1:
+                    num_constant_frames_in_segment = (i - current_constant_run_start_idx) + 1
+
+                    # 再次检查总变动，确保在序列结束时也满足条件
+                    if (current_segment_max_std - current_segment_min_std) <= max_cumulative_std_deviation and \
+                            num_constant_frames_in_segment >= min_constant_frames:
+                        start_time = current_constant_run_start_idx * hop_length
+                        end_time = (current_constant_run_start_idx + num_constant_frames_in_segment - 1) * hop_length
+                        abnormal_segments.append((start_time, end_time))
+                    current_constant_run_start_idx = -1  # 重置，等待下一个连续序列
+                    # 重置 min/max STD
+                    current_segment_min_std = float('inf')
+                    current_segment_max_std = float('-inf')
+
+        # 处理最后一个可能持续到数组末尾的连续不变序列
+        if current_constant_run_start_idx != -1:
+            num_constant_frames_in_segment = (len(is_constant_diff) - current_constant_run_start_idx) + 1
+
+            # 最后的检查
+            if (current_segment_max_std - current_segment_min_std) <= max_cumulative_std_deviation and \
+                    num_constant_frames_in_segment >= min_constant_frames:
+                start_time = current_constant_run_start_idx * hop_length
+                end_time = (current_constant_run_start_idx + num_constant_frames_in_segment - 1) * hop_length
+                abnormal_segments.append((start_time, end_time))
+
+        # --- 绘制结果 ---
+        if plot_results:
+            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 8), sharex=True)
+
+            # --- 子图1: 音频波形图 ---
+            time = np.linspace(0, len(audio_waveform) / sr, len(audio_waveform))
+            ax1.plot(time, audio_waveform, color='blue', alpha=0.7, label='Audio Waveform')
+
+            for start_t, end_t in abnormal_segments:
+                ax1.axvspan(start_t, end_t, color='red', alpha=0.3)
+
+            ax1.set_title('Audio Waveform with Detected Constant STD Segments')
+            ax1.set_ylabel('Amplitude')
+            ax1.grid(True, linestyle='--', alpha=0.7)
+            ax1.legend()
+
+            # --- 子图2: 帧标准差图 ---
+            frame_time = np.arange(len(frame_stds)) * hop_length
+
+            ax2.plot(frame_time, frame_stds, color='green', label='Frame Standard Deviation')
+            ax2.scatter(frame_time, frame_stds, color='green')
+
+            # 可选：绘制 diff_threshold
+            # diff_time = np.arange(len(std_diffs)) * hop_length
+            # ax2.plot(diff_time + hop_length/2, std_diffs, color='purple', linestyle=':', label='Abs(Std Diff)')
+            # ax2.axhline(y=diff_threshold, color='orange', linestyle='--', label='Diff Threshold')
+
+            # 再次绘制检测到的异常区域
+            for start_t, end_t in abnormal_segments:
+                ax2.axvspan(start_t, end_t, color='red', alpha=0.3)
+
+            ax2.set_title('Frame Standard Deviation Over Time')
+            ax2.set_xlabel('Time (s)')
+            ax2.set_ylabel('Standard Deviation')
+            ax2.grid(True, linestyle='--', alpha=0.7)
+            ax2.legend()
+
+            plt.tight_layout()
+            plt.show()
+
+        return abnormal_segments
+
+    # audio_waveform, sr = librosa.load("/Users/zhou/Downloads/test_uh.m4a", mono=True, sr=16000)
+    # detect_constant_std_segments(audio_waveform, sr, plot_results=True)
+
 
 class QiniuConst:
     access_key = "izz8Pq4VzTJbD8CmM3df5BAncyqynkPgF1K4srqP"

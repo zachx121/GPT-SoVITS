@@ -582,6 +582,7 @@ class GSVModel:
         cond2, p, y = GSVModel.is_abnormal_duration(wav_arr, wav_sr, text, lang, **kwargs)
         cond3 = GSVModel.is_empty_noise(wav_arr, **kwargs)
         cond4 = utils_audio.NoiseCheck.is_abnormal_pronounce(wav_arr, wav_sr)
+        cond5 = utils_audio.NoiseCheck.detect_constant_std_segments(wav_arr, wav_sr)
         # if cond1:
         #     logging.warning(f">>> 检测为 is_pure_noise")
         if cond2:
@@ -590,6 +591,8 @@ class GSVModel:
             logging.warning(f">>> 检测为 is_empty_noise")
         if cond4:
             logging.warning(f">>> 检测为 is_abnormal_pronounce")
+        if cond5:
+            logging.warning(">>> 检测为 拖长音或静音片段超过1秒")
         return any([cond2, cond3, cond4])
 
     # 检测是否为参考音频泄露
