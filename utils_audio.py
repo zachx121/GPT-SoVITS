@@ -329,14 +329,17 @@ class NoiseCheck:
                 check(y, sr, debug=True)
 
     @staticmethod
-    def detect_constant_std_segments(audio_waveform, sr, frame_length=0.1, hop_length=0.05, diff_threshold=0.01,
-                                     min_constant_frames=10, max_cumulative_std_deviation=0.02, plot_results=False):
+    def detect_constant_std_segments(audio_waveform, sr, frame_length=0.1, hop_length=0.05,
+                                     diff_threshold=0.03, max_cumulative_std_deviation=0.03,
+                                     min_constant_frames=10, debug=False):
         """
         检测音频波形中帧间标准差保持不变（或极小变化）的片段，并可选择绘制结果。
         同时，增加逻辑限制连续不变段内标准差的总变动范围。
 
         # frame_length 太小的话，比如0.01相当于检测第N个和第N+1个0.01s之间的方差变化，这个太陡峭了，用0.1平滑一点
         # min_constant_frames 持续10帧，也就是10*frame_length=10*0.1=1秒
+        # diff_threshold 两个相邻帧，各自都计算帧内std，比较这两个std的差值
+        # max_cumulative_std_deviation 被视为连续的片段时，要求偏差最大不能超过这个值（每次检查当前帧和过去最小std）
 
         参数:
         audio_waveform (np.array): 输入的音频波形数据（一维NumPy数组）。
@@ -349,7 +352,7 @@ class NoiseCheck:
                                     例如，如果每秒100帧，50帧代表0.5秒。
         max_cumulative_std_deviation (float): 允许的连续不变段内，标准差的最大累积总变动。
                                               即，(max(segment_std) - min(segment_std)) <= max_cumulative_std_deviation。
-        plot_results (bool): 是否绘制结果图。
+        debug (bool): 是否绘制结果图。
 
         返回:
         list: 一个列表，每个元素是一个元组 (start_time, end_time)，表示检测到的帧标准差不变的音频段。
@@ -359,8 +362,6 @@ class NoiseCheck:
         hop_size = int(hop_length * sr)
 
         frames = librosa.util.frame(audio_waveform, frame_length=frame_size, hop_length=hop_size, axis=0)
-
-        print(f"Frames shape after librosa.util.frame: {frames.shape}")
 
         # 计算每一帧内部的标准差 (形状: (num_frames,))
         frame_stds = np.std(frames, axis=1)
@@ -444,7 +445,7 @@ class NoiseCheck:
                 abnormal_segments.append((start_time, end_time))
 
         # --- 绘制结果 ---
-        if plot_results:
+        if debug:
             fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 8), sharex=True)
 
             # --- 子图1: 音频波形图 ---
@@ -483,10 +484,13 @@ class NoiseCheck:
             plt.tight_layout()
             plt.show()
 
-        return abnormal_segments
+        # 总计异常片段超过1秒
+        # return sum([b-a for (a,b) in abnormal_segments]) >= 1.0
+        # 存在一个异常片段
+        return len(abnormal_segments) >= 1
 
     # audio_waveform, sr = librosa.load("/Users/zhou/Downloads/test_uh.m4a", mono=True, sr=16000)
-    # detect_constant_std_segments(audio_waveform, sr, plot_results=True)
+    # detect_constant_std_segments(audio_waveform, sr, diff_threshold=0.03, max_cumulative_std_deviation=0.03, debug=True)
 
 
 class QiniuConst:
