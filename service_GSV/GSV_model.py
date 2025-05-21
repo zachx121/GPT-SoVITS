@@ -577,23 +577,40 @@ class GSVModel:
         return np.var(wav_arr) <= var_hold
 
     @staticmethod
-    def audio_check(wav_arr, wav_sr, text, lang, **kwargs):
+    def is_abnormal_audio(wav_arr, wav_sr, text, lang, **kwargs):
         # cond1 = GSVModel.is_pure_noise(wav_arr, **kwargs)
+        s = time.time()
         cond2, p, y = GSVModel.is_abnormal_duration(wav_arr, wav_sr, text, lang, **kwargs)
+        logging.debug(f"异常检测耗时 is_abnormal_duration: {(time.time() - s)*1000:.0f}ms")
+        s = time.time()
         cond3 = GSVModel.is_empty_noise(wav_arr, **kwargs)
+        logging.debug(f"异常检测耗时 is_empty_noise: {(time.time() - s) * 1000:.0f}ms")
+        s = time.time()
         cond4 = utils_audio.NoiseCheck.is_abnormal_pronounce(wav_arr, wav_sr)
+        logging.debug(f"异常检测耗时 is_abnormal_pronounce: {(time.time() - s) * 1000:.0f}ms")
+        s = time.time()
         cond5 = utils_audio.NoiseCheck.detect_constant_std_segments(wav_arr, wav_sr)
+        logging.debug(f"异常检测耗时 detect_constant_std_segments: {(time.time() - s) * 1000:.0f}ms")
         # if cond1:
         #     logging.warning(f">>> 检测为 is_pure_noise")
+        tags = []
         if cond2:
-            logging.warning(f">>> 检测为 is_abnormal_duration (预测时长={p} 实际时长={y} lang='{lang}' text='{text}' )")
+            tags.append(f"时长异常(预测时长={p} 实际时长={y})")
+            # logging.warning(f">>> 检测为 is_abnormal_duration (预测时长={p} 实际时长={y} lang='{lang}' text='{text}' )")
         if cond3:
-            logging.warning(f">>> 检测为 is_empty_noise")
+            tags.append("空白噪音")
+            # logging.warning(f">>> 检测为 is_empty_noise")
         if cond4:
-            logging.warning(f">>> 检测为 is_abnormal_pronounce")
+            tags.append("异常发音")
+            # logging.warning(f">>> 检测为 is_abnormal_pronounce")
         if cond5:
-            logging.warning(">>> 检测为 拖长音或静音片段超过1秒")
-        return any([cond2, cond3, cond4])
+            tags.append("拖长音或静音频段超过1秒")
+            # logging.warning(">>> 检测为 拖长音或静音片段超过1秒")
+        if len(tags) >= 1:
+            logging.warning(f"检测到异常音频 类型：{','.join(tags)}")
+            return True
+        else:
+            return False
 
     # 检测是否为参考音频泄露
     def is_ref_leakage(self, wav_arr, wav_sr, ref_info: ReferenceInfo):
@@ -683,7 +700,7 @@ class GSVModel:
                                                 ref_free=True, no_cut=no_cut, **kwargs)
             wav_sr, wav_arr_int16 = list(synthesis_result)[-1]
             # 如果「泄露-->无参模式推理异常」这里重试一次
-            if self.audio_check(wav_arr_int16, wav_sr, target_text, target_lang):
+            if self.is_abnormal_audio(wav_arr_int16, wav_sr, target_text, target_lang):
                 synthesis_result = self.get_tts_wav(text=target_text, text_language=tgt_lang,
                                                     ref_wav_path=ref_info.audio_fp,
                                                     prompt_text=ref_info.text, prompt_language=ref_lang,
@@ -693,7 +710,7 @@ class GSVModel:
             return wav_sr, wav_arr_int16, self.tts_num
 
         cnt, max_cnt = 0, 1  # 如果合成的音频数组方差太小，意味着是空白音或者爆音，最多重试三次，正常方差示例:522218,849305
-        while self.audio_check(wav_arr_int16, wav_sr, target_text, target_lang) and cnt <= max_cnt:
+        while self.is_abnormal_audio(wav_arr_int16, wav_sr, target_text, target_lang) and cnt <= max_cnt:
             if cnt == max_cnt:
                 ref_free = True
                 logging.warning(f">>> 检测到 异常音频，将进行第{cnt + 1}/{max_cnt + 1}次重试合成(最后一次 强制ref_free=True)")
@@ -918,7 +935,7 @@ if __name__ == '__main__':
         audio_list.append(audio)
         opt_fp = f"audio{idx}_{len(line.split(' '))}token_{(end_t - begin_t) * 1000:.0f}ms.wav"
         is_leak = M.is_ref_leakage(audio, sr, ref_info)
-        is_any_abnormal = M.audio_check(wav_arr=audio, wav_sr=sr, text=line, lang=lang)
+        is_any_abnormal = M.is_abnormal_audio(wav_arr=audio, wav_sr=sr, text=line, lang=lang)
         opt_fp = os.path.join(opt_dir, opt_fp)
         sf.write(opt_fp, audio, sr)
         cmt_list.append(

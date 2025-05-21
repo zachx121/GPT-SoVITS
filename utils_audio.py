@@ -329,15 +329,16 @@ class NoiseCheck:
                 check(y, sr, debug=True)
 
     @staticmethod
-    def detect_constant_std_segments(audio_waveform, sr, frame_length=0.1, hop_length=0.05,
+    def detect_constant_std_segments(audio_waveform, sr,
+                                     frame_length=0.2, hop_length=0.1, min_constant_frames=10,
                                      diff_threshold=0.03, max_cumulative_std_deviation=0.03,
-                                     min_constant_frames=10, debug=False):
+                                     debug=False):
         """
         检测音频波形中帧间标准差保持不变（或极小变化）的片段，并可选择绘制结果。
         同时，增加逻辑限制连续不变段内标准差的总变动范围。
 
         # frame_length 太小的话，比如0.01相当于检测第N个和第N+1个0.01s之间的方差变化，这个太陡峭了，用0.1平滑一点
-        # min_constant_frames 持续10帧，也就是10*frame_length=10*0.1=1秒
+        # min_constant_frames 持续10帧，但由于是hop的滑窗，所以检测的时长是10*hop_length
         # diff_threshold 两个相邻帧，各自都计算帧内std，比较这两个std的差值
         # max_cumulative_std_deviation 被视为连续的片段时，要求偏差最大不能超过这个值（每次检查当前帧和过去最小std）
 
@@ -411,8 +412,7 @@ class NoiseCheck:
                         if num_constant_frames_in_segment >= min_constant_frames:
                             # 记录当前有效的片段
                             start_time = current_constant_run_start_idx * hop_length
-                            end_time = (
-                                                   current_constant_run_start_idx + num_constant_frames_in_segment - 1) * hop_length
+                            end_time = (current_constant_run_start_idx + num_constant_frames_in_segment - 1) * hop_length
                             abnormal_segments.append((start_time, end_time))
                     current_constant_run_start_idx = -1  # 重置，等待下一个连续序列
                     # 重置 min/max STD，因为我们开始了新的潜在序列
